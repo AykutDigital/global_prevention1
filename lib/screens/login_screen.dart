@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
 import '../theme/app_theme.dart';
+import '../widgets/platform_adaptive.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,10 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (_emailController.text == 'admin@globalprevention.fr' &&
         _passwordController.text == 'globalprevention2026') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const DashboardScreen()),
-      );
+      Navigator.pushNamedAndRemoveUntil(context, '/dashboard', (route) => false);
     } else {
       setState(() {
         _errorMessage = 'Identifiants incorrects';
@@ -136,13 +134,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     child: _isLoading
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 24,
                             height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
+                            child: PlatformAdaptive.loader(),
                           )
                         : const Text('SE CONNECTER'),
                   ),
