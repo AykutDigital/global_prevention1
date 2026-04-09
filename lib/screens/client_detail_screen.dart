@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/supabase_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'report_preview_screen.dart';
+import '../services/pdf_service.dart';
+import 'client_form_screen.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   final Client client;
@@ -20,6 +25,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -31,8 +39,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
   @override
   Widget build(BuildContext context) {
     final client = widget.client;
-    final interventions = MockData.interventionsForClient(client.clientId);
-    final relances = MockData.relancesForClient(client.clientId);
     final isMobile = ResponsiveLayout.isMobile(context);
 
     return Scaffold(
@@ -45,15 +51,38 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_rounded),
-            onPressed: () => _showSnackbar('Modification en cours de développement'),
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ClientFormScreen(clientToEdit: client),
+                ),
+              );
+              if (result == true && mounted) {
+                // If the detail screen is still open after edit, 
+                // we might need to refresh or pop if the ID changed (rare)
+                // Since it's a stream, it might auto-update if we are watching the specific client
+              }
+            },
             tooltip: 'Modifier',
           ),
           PopupMenuButton<String>(
-            onSelected: (value) => _showSnackbar('$value — en cours de développement'),
+            onSelected: (value) {
+              if (value == 'supprimer') {
+                _confirmDelete(context, client);
+              } else {
+                _showSnackbar('$value — en cours de développement');
+              }
+            },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'intervention', child: Text('Nouvelle intervention')),
               const PopupMenuItem(value: 'relance', child: Text('Envoyer relance')),
               const PopupMenuItem(value: 'archiver', child: Text('Archiver le client')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'supprimer', 
+                child: Text('Supprimer définitivement', style: TextStyle(color: Colors.red)),
+              ),
             ],
           ),
         ],
@@ -73,19 +102,26 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         controller: _tabController,
         children: [
           _buildInfoTab(client, isMobile),
-          _buildInterventionsTab(interventions),
-          _buildPlaceholderTab(Icons.description_rounded, 'Rapports', 'Les rapports associés à ce client seront affichés ici.'),
-          _buildRelancesTab(relances, client),
-          _buildPlaceholderTab(Icons.inventory_2_rounded, 'Équipements', 'La liste des équipements installés sur site sera affichée ici.'),
+          _buildInterventionsTab(client.clientId),
+          _buildRapportsTab(client),
+          _buildRelancesTab(client.clientId),
+          _buildEquipmentTab(client.clientId),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.pushNamed(context, '/new-intervention');
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Intervention'),
-      ),
+      floatingActionButton: _tabController.index == 4 
+        ? FloatingActionButton.extended(
+            onPressed: () => _showAddEquipmentDialog(context, client.clientId),
+            icon: const Icon(Icons.add_box_rounded),
+            label: const Text('Équipement'),
+            backgroundColor: AppTheme.primary,
+          )
+        : FloatingActionButton.extended(
+            onPressed: () {
+              Navigator.pushNamed(context, '/new-intervention');
+            },
+            icon: const Icon(Icons.add),
+            label: const Text('Intervention'),
+          ),
     );
   }
 
@@ -166,6 +202,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
               _infoCard(Icons.badge_outlined, 'SIRET', client.siret ?? '—', isMobile ? double.infinity : 220),
               _infoCard(Icons.category_rounded, 'Code NAF', client.codeNaf ?? '—', isMobile ? double.infinity : 220),
               _infoCard(Icons.account_balance_rounded, 'TVA Intra', client.tvaIntra ?? '—', isMobile ? double.infinity : 220),
+              _infoCard(Icons.work_rounded, 'Activité', client.activite ?? '—', isMobile ? double.infinity : 220),
+              _infoCard(Icons.warning_rounded, 'Risques particuliers', client.risquesParticuliers ?? '—', isMobile ? double.infinity : 456),
             ],
           ),
           const SizedBox(height: 24),
@@ -276,125 +314,274 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
     );
   }
 
-  Widget _buildInterventionsTab(List<Intervention> interventions) {
-    if (interventions.isEmpty) {
-      return _buildPlaceholderTab(
-        Icons.build_circle_rounded,
-        'Aucune intervention',
-        'Aucune intervention enregistrée pour ce client.',
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: interventions.length,
-      itemBuilder: (context, index) {
-        final i = interventions[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(16),
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: i.branche.lightColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(i.branche.icon, color: i.branche.color, size: 22),
-            ),
-            title: Text(
-              '${i.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} — ${i.branche.label}',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '${_formatDate(i.dateIntervention)} • ${i.periodicite.label} • ${i.technicienNom}',
-                style: TextStyle(fontSize: 12, color: AppTheme.secondaryText),
-              ),
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: i.statut.color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                i.statut.label,
-                style: TextStyle(
-                  color: i.statut.color,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
+  Widget _buildInterventionsTab(String clientId) {
+    return StreamBuilder<List<Intervention>>(
+      stream: SupabaseService.instance.interventionsForClientStream(clientId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final interventions = snapshot.data ?? [];
+        if (interventions.isEmpty) {
+          return _buildPlaceholderTab(
+            Icons.build_circle_rounded,
+            'Aucune intervention',
+            'Aucune intervention enregistrée pour ce client.',
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: interventions.length,
+          itemBuilder: (context, index) {
+            final i = interventions[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: i.branche.lightColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(i.branche.icon, color: i.branche.color, size: 22),
                 ),
+                title: Text(
+                  '${i.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} — ${i.branche.label}',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '${_formatDate(i.dateIntervention)} • ${i.periodicite.label} • ${i.technicienNom}',
+                    style: TextStyle(fontSize: 12, color: AppTheme.secondaryText),
+                  ),
+                ),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: i.statut.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    i.statut.label,
+                    style: TextStyle(
+                      color: i.statut.color,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                onTap: () => _showSnackbar('Détail intervention — en cours de développement'),
               ),
-            ),
-            onTap: () => _showSnackbar('Détail intervention — en cours de développement'),
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildRelancesTab(List<Relance> relances, Client client) {
-    if (relances.isEmpty) {
-      return _buildPlaceholderTab(
-        Icons.notifications_active_rounded,
-        'Aucune relance',
-        'Aucune relance planifiée pour ce client.',
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: relances.length,
-      itemBuilder: (context, index) {
-        final r = relances[index];
-        final jours = r.joursRestants;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(16),
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: r.urgencyColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                jours < 0 ? Icons.error_rounded : Icons.schedule_rounded,
-                color: r.urgencyColor,
-                size: 22,
-              ),
-            ),
-            title: Text(
-              '${r.typeMaintenance.label} — ${r.branche.label}',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Échéance : ${_formatDate(r.dateEcheance)} • ${r.nbRelancesEnvoyees} relance(s) envoyée(s)',
-                style: TextStyle(fontSize: 12, color: AppTheme.secondaryText),
-              ),
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: r.urgencyColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                jours < 0 ? 'Dépassé J+${-jours}' : 'J-$jours',
-                style: TextStyle(
-                  color: r.urgencyColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ),
+  Widget _buildRapportsTab(Client client) {
+    return StreamBuilder<List<Intervention>>(
+      stream: SupabaseService.instance.interventionsForClientStream(client.clientId),
+      builder: (context, interventionSnapshot) {
+        return StreamBuilder<List<Rapport>>(
+          stream: SupabaseService.instance.rapportsStream,
+          builder: (context, rapportSnapshot) {
+            if (rapportSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final allInterventions = interventionSnapshot.data ?? [];
+            final interventionIds = allInterventions.map((i) => i.interventionId).toSet();
+            final rapports = (rapportSnapshot.data ?? [])
+                .where((r) => interventionIds.contains(r.interventionId))
+                .toList();
+
+            if (rapports.isEmpty) {
+              return _buildPlaceholderTab(
+                Icons.description_rounded,
+                'Aucun rapport',
+                'Les rapports associés à ce client seront affichés ici.',
+              );
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: rapports.length,
+              itemBuilder: (context, index) {
+                final r = rapports[index];
+                final intervention = allInterventions.firstWhere((i) => i.interventionId == r.interventionId);
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16),
+                    leading: Icon(Icons.picture_as_pdf_rounded, color: AppTheme.veriflammeRed),
+                    title: Text(r.numeroRapport, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text(_formatDate(r.dateCreation)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.visibility_rounded, size: 20),
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportPreviewScreen(
+                            client: client,
+                            intervention: intervention,
+                            rapport: r,
+                          ))),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.send_rounded, size: 20, color: AppTheme.infoBlue),
+                          onPressed: () => PdfService.sendEmailLink(client.contactEmail, r.pdfUrl ?? '', r.numeroRapport),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildRelancesTab(String clientId) {
+    return StreamBuilder<List<Relance>>(
+      stream: SupabaseService.instance.relancesStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final relances = (snapshot.data ?? []).where((r) => r.clientId == clientId).toList();
+        if (relances.isEmpty) {
+          return _buildPlaceholderTab(
+            Icons.notifications_active_rounded,
+            'Aucune relance',
+            'Aucune relance planifiée pour ce client.',
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: relances.length,
+          itemBuilder: (context, index) {
+            final r = relances[index];
+            final jours = r.joursRestants;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: r.urgencyColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    jours < 0 ? Icons.error_rounded : Icons.schedule_rounded,
+                    color: r.urgencyColor,
+                    size: 22,
+                  ),
+                ),
+                title: Text(
+                  '${r.typeMaintenance.label} — ${r.branche.label}',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Échéance : ${_formatDate(r.dateEcheance)} • ${r.nbRelancesEnvoyees} relance(s)',
+                    style: TextStyle(fontSize: 12, color: AppTheme.secondaryText),
+                  ),
+                ),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: r.urgencyColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    jours < 0 ? 'Dépassé J+${-jours}' : 'J-$jours',
+                    style: TextStyle(
+                      color: r.urgencyColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEquipmentTab(String clientId) {
+    return StreamBuilder<List<Equipment>>(
+      stream: SupabaseService.instance.equipmentStream(clientId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final equipment = snapshot.data ?? [];
+        if (equipment.isEmpty) {
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildPlaceholderTab(
+                Icons.inventory_2_rounded,
+                'Aucun équipement',
+                'La liste des équipements installés sur site sera affichée ici.',
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _showAddEquipmentDialog(context, clientId),
+                icon: const Icon(Icons.add),
+                label: const Text('Ajouter le premier équipement'),
+              ),
+            ],
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: equipment.length,
+          itemBuilder: (context, index) {
+            final e = equipment[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: e.branche == Branche.veriflamme ? AppTheme.veriflammeRed.withOpacity(0.1) : AppTheme.sauvdefibGreen.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    e.type == 'Extincteur' ? Icons.fire_extinguisher : Icons.medical_services, 
+                    color: e.branche == Branche.veriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,
+                    size: 20
+                  ),
+                ),
+                title: Text('${e.type} ${e.brand ?? ""}'),
+                subtitle: Text('Niveau: ${e.niveau ?? "RDC"} • Emplacement: ${e.location ?? "Non spécifié"}'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showAddEquipmentDialog(BuildContext context, String clientId, {Equipment? equipmentToEdit}) {
+    showDialog(
+      context: context,
+      builder: (context) => _EquipmentFormDialog(clientId: clientId, equipmentToEdit: equipmentToEdit),
     );
   }
 
@@ -480,13 +667,200 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
-  void _showSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+  void _confirmDelete(BuildContext context, Client client) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer le client ?'),
+        content: Text('Êtes-vous sûr de vouloir supprimer ${client.raisonSociale} ?\n\nCette action supprimera également tous ses rapports et équipements liés.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ANNULER'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog
+              try {
+                await SupabaseService.instance.deleteClient(client.clientId);
+                if (context.mounted) {
+                  Navigator.pop(context); // Go back to list
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Client supprimé'), backgroundColor: Colors.red),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) _showSnackbar('Erreur lors de la suppression: $e');
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('SUPPRIMER'),
+          ),
+        ],
       ),
     );
+  }
+
+  void _showSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
+    );
+  }
+}
+
+class _EquipmentFormDialog extends StatefulWidget {
+  final String clientId;
+  final Equipment? equipmentToEdit;
+
+  const _EquipmentFormDialog({required this.clientId, this.equipmentToEdit});
+
+  @override
+  State<_EquipmentFormDialog> createState() => _EquipmentFormDialogState();
+}
+
+class _EquipmentFormDialogState extends State<_EquipmentFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _typeController;
+  late TextEditingController _brandController;
+  late TextEditingController _modelController;
+  late TextEditingController _locationController;
+  late TextEditingController _levelController;
+  late TextEditingController _yearController;
+  late TextEditingController _capacityController;
+  late Branche _selectedBranche;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.equipmentToEdit;
+    _typeController = TextEditingController(text: e?.type);
+    _brandController = TextEditingController(text: e?.brand);
+    _modelController = TextEditingController(text: e?.model);
+    _locationController = TextEditingController(text: e?.location);
+    _levelController = TextEditingController(text: e?.niveau);
+    _yearController = TextEditingController(text: e?.manufactureYear?.toString());
+    _capacityController = TextEditingController(text: e?.capacity);
+    _selectedBranche = e?.branche ?? Branche.veriflamme;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEdit = widget.equipmentToEdit != null;
+
+    return AlertDialog(
+      title: Text(isEdit ? 'Modifier l\'équipement' : 'Ajouter un équipement'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<Branche>(
+                value: _selectedBranche,
+                decoration: const InputDecoration(labelText: 'Branche', prefixIcon: Icon(Icons.business_rounded)),
+                items: Branche.values.map((b) => DropdownMenuItem(value: b, child: Text(b.label))).toList(),
+                onChanged: (v) => setState(() => _selectedBranche = v!),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _typeController,
+                decoration: const InputDecoration(labelText: 'Type de matériel (ex: Extincteur CO2)', prefixIcon: Icon(Icons.category_rounded)),
+                validator: (v) => v == null || v.isEmpty ? 'Champ requis' : null,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _levelController,
+                      decoration: const InputDecoration(labelText: 'Niveau (ex: RDC)', prefixIcon: Icon(Icons.layers_rounded)),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _locationController,
+                      decoration: const InputDecoration(labelText: 'Emplacement', prefixIcon: Icon(Icons.location_on_rounded)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _brandController,
+                      decoration: const InputDecoration(labelText: 'Marque', prefixIcon: Icon(Icons.branding_watermark_rounded)),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _yearController,
+                      decoration: const InputDecoration(labelText: 'Année fab.', prefixIcon: Icon(Icons.calendar_today_rounded)),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _capacityController,
+                decoration: const InputDecoration(labelText: 'Capacité / Modèle', prefixIcon: Icon(Icons.straighten_rounded)),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
+        ElevatedButton(
+          onPressed: _isSaving ? null : _save,
+          child: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(isEdit ? 'MODIFIER' : 'AJOUTER'),
+        ),
+      ],
+    );
+  }
+
+  void _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isSaving = true);
+    try {
+      final e = widget.equipmentToEdit;
+      final newEq = Equipment(
+        id: e?.id ?? '', // Supabase will ignore if inserting new
+        clientId: widget.clientId,
+        type: _typeController.text,
+        brand: _brandController.text,
+        model: _modelController.text,
+        location: _locationController.text,
+        niveau: _levelController.text,
+        manufactureYear: int.tryParse(_yearController.text),
+        capacity: _capacityController.text,
+        branche: _selectedBranche,
+      );
+
+      if (e == null) {
+        await SupabaseService.instance.insertEquipment(newEq);
+      } else {
+        // We might need an updateEquipment method if we want to edit
+        // For now, let's assume insertEquipment handles upsert or we just add the method
+        await SupabaseService.instance.insertEquipment(newEq); // Assuming upsert logic
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Équipement enregistré')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 }

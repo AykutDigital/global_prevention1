@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/supabase_service.dart';
+import 'technicians_screen.dart';
 
 class AdminScreen extends StatelessWidget {
   const AdminScreen({super.key});
@@ -27,9 +29,11 @@ class AdminScreen extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
-              childAspectRatio: isMobile ? 2.5 : 2.2,
+              childAspectRatio: isMobile ? 1.8 : 2.2,
               children: [
-                _adminCard(context, Icons.people_rounded, 'Gestion techniciens', 'Ajouter, modifier ou désactiver des comptes techniciens.', AppTheme.infoBlue),
+                _adminCard(context, Icons.people_rounded, 'Gestion techniciens', 'Ajouter, modifier ou désactiver des comptes techniciens.', AppTheme.infoBlue, onTap: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const TechniciansScreen()));
+                }),
                 _adminCard(context, Icons.email_rounded, 'Configuration SMTP', 'Paramétrer le serveur e-mail pour l\'envoi des rapports et relances.', AppTheme.warningOrange),
                 _adminCard(context, Icons.inventory_2_rounded, 'Catalogue matériaux', 'Gérer le catalogue de matériaux prédéfinis par branche.', AppTheme.sauvdefibGreen),
                 _adminCard(context, Icons.bar_chart_rounded, 'Statistiques', 'Analyses et graphiques : conformité, coûts, fréquence clients.', AppTheme.primaryLight),
@@ -46,12 +50,12 @@ class AdminScreen extends StatelessWidget {
               decoration: AppTheme.cardDecoration(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                  children: [
                   _infoRow('Version', '1.0.0-beta'),
-                  _infoRow('Base de données', 'SQLite (offline-first)'),
-                  _infoRow('Synchronisation', 'Non connecté'),
-                  _infoRow('Dernière sauvegarde', '—'),
-                  _infoRow('Technicien connecté', 'admin@globalprevention.fr'),
+                  _infoRow('Base de données', 'Supabase (Cloud)'),
+                  _infoRow('Synchronisation', 'Connecté'),
+                  _infoRow('Dernière sauvegarde', 'En temps réel'),
+                  _infoRow('Technicien connecté', SupabaseService.instance.currentTechnician?.nomComplet ?? 'Maxence Marseille'),
                 ],
               ),
             ),
@@ -61,9 +65,9 @@ class AdminScreen extends StatelessWidget {
     );
   }
 
-  Widget _adminCard(BuildContext context, IconData icon, String title, String desc, Color color) {
+  Widget _adminCard(BuildContext context, IconData icon, String title, String desc, Color color, {VoidCallback? onTap}) {
     return InkWell(
-      onTap: () {
+      onTap: onTap ?? () {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$title — en cours de développement'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
         );
@@ -99,8 +103,8 @@ class AdminScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(children: [
-        SizedBox(width: 180, child: Text(label, style: TextStyle(color: AppTheme.secondaryText, fontSize: 13))),
-        Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
+        Expanded(flex: 3, child: Text(label, style: TextStyle(color: AppTheme.secondaryText, fontSize: 13))),
+        Expanded(flex: 4, child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
       ]),
     );
   }

@@ -1,7 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/app_context_service.dart';
+import '../services/supabase_service.dart';
+import '../services/pdf_service.dart';
+import 'report_preview_screen.dart';
+import '../widgets/signature_pad.dart';
 
 class NewInterventionScreen extends StatefulWidget {
   const NewInterventionScreen({super.key});
@@ -12,10 +22,62 @@ class NewInterventionScreen extends StatefulWidget {
 
 class _NewInterventionScreenState extends State<NewInterventionScreen> {
   int _currentStep = 0;
-  Branche _selectedBranche = Branche.veriflamme;
+  late Branche _selectedBranche;
   TypeIntervention _selectedType = TypeIntervention.maintenance;
   Periodicite _selectedPeriodicite = Periodicite.annuelle;
   String? _selectedClientId;
+  Client? _selectedClient;
+  List<Technician> _technicians = [];
+  Technician? _selectedTechnician;
+
+  // Real data state
+  final List<EquipmentMaintenanceLine> _equipmentChecks = [];
+  Uint8List? _signatureClient;
+  Uint8List? _signatureTechnicien;
+  final _recommandationsController = TextEditingController();
+  final _activiteController = TextEditingController();
+  final _risquesController = TextEditingController();
+  final _surfaceController = TextEditingController();
+  bool _registreSecurite = true;
+  Conformite _selectedConformite = Conformite.conforme;
+  bool _isSaving = false;
+  List<Equipment> _allEquipments = []; // Cache for PDF generation
+
+  @override
+  void initState() {
+    super.initState();
+    if (!AppContextService.instance.isVeriflammeActive.value && AppContextService.instance.isSauvdefibActive.value) {
+      _selectedBranche = Branche.sauvdefib;
+    } else {
+      _selectedBranche = Branche.veriflamme;
+    }
+    _fetchTechnicians();
+  }
+
+  Future<void> _fetchTechnicians() async {
+    final stream = SupabaseService.instance.techniciansStream;
+    stream.first.then((list) {
+      setState(() {
+        _technicians = list.where((t) => t.actif).toList();
+        // Default to current logged in tech if found in list
+        final current = SupabaseService.instance.currentTechnician;
+        if (current != null) {
+          _selectedTechnician = _technicians.firstWhere((t) => t.id == current.id, orElse: () => current);
+        } else if (_technicians.isNotEmpty) {
+          _selectedTechnician = _technicians.first;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _recommandationsController.dispose();
+    _activiteController.dispose();
+    _risquesController.dispose();
+    _surfaceController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +134,8 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
               // Step 1: Client selection
               Step(
                 title: const Text('Client'),
-                subtitle: _selectedClientId != null
-                    ? Text(MockData.clientById(_selectedClientId!)?.raisonSociale ?? '')
+                subtitle: _selectedClient != null
+                    ? Text(_selectedClient!.raisonSociale)
                     : null,
                 isActive: _currentStep >= 0,
                 state: _currentStep > 0 ? StepState.complete : StepState.indexed,
@@ -119,45 +181,85 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Sélectionnez le client pour cette intervention :',
-          style: TextStyle(fontSize: 14),
+        _sectionTitle('Client & Intervenant'),
+        const SizedBox(height: 16),
+        // Technician selection
+        DropdownButtonFormField<Technician>(
+          value: _selectedTechnician,
+          decoration: const InputDecoration(
+            labelText: 'Technicien intervenant',
+            prefixIcon: Icon(Icons.person_rounded),
+          ),
+          items: _technicians.map((t) => DropdownMenuItem(
+            value: t,
+            child: Text(t.nomComplet),
+          )).toList(),
+          onChanged: (v) => setState(() => _selectedTechnician = v),
+          validator: (v) => v == null ? 'Requis' : null,
         ),
         const SizedBox(height: 16),
-        ...MockData.clients.map((client) {
-          final isSelected = _selectedClientId == client.clientId;
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            color: isSelected ? AppTheme.infoBlueLight : null,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(
-                color: isSelected ? AppTheme.infoBlue : AppTheme.divider,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
-            child: ListTile(
-              onTap: () => setState(() => _selectedClientId = client.clientId),
-              leading: isSelected
-                  ? Icon(Icons.check_circle_rounded, color: AppTheme.infoBlue)
-                  : Icon(Icons.radio_button_unchecked, color: AppTheme.tertiaryText),
-              title: Text(client.raisonSociale, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: Text('${client.codeClient} — ${client.ville}', style: const TextStyle(fontSize: 12)),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (client.isVeriflamme)
-                    Icon(Icons.local_fire_department, color: AppTheme.veriflammeRed, size: 18),
-                  if (client.isSauvdefib)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Icon(Icons.medical_services, color: AppTheme.sauvdefibGreen, size: 18),
+        StreamBuilder<List<Client>>(
+          stream: SupabaseService.instance.clientsStream,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+            
+            final clients = snapshot.data!.where((c) {
+              final vfActive = AppContextService.instance.isVeriflammeActive.value;
+              final sdActive = AppContextService.instance.isSauvdefibActive.value;
+              return (c.isVeriflamme && vfActive) || (c.isSauvdefib && sdActive);
+            }).toList();
+
+            if (clients.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('Aucun client trouvé.'));
+
+            return Column(
+              children: clients.map((client) {
+                final isSelected = _selectedClientId == client.clientId;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: isSelected ? AppTheme.infoBlueLight : null,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(
+                      color: isSelected ? AppTheme.infoBlue : AppTheme.divider,
+                      width: isSelected ? 2 : 1,
                     ),
-                ],
-              ),
-            ),
-          );
-        }),
+                  ),
+                  child: ListTile(
+                        onTap: () => setState(() {
+                    _selectedClientId = client.clientId;
+                    _selectedClient = client;
+                    // Pre-fill site info from client
+                    _activiteController.text = client.activite ?? '';
+                    _risquesController.text = client.risquesParticuliers ?? '';
+                  }),
+                    leading: isSelected
+                        ? Icon(Icons.check_circle_rounded, color: AppTheme.infoBlue)
+                        : Icon(Icons.radio_button_unchecked, color: AppTheme.tertiaryText),
+                    title: Text(
+                      client.raisonSociale, 
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('${client.codeClient} — ${client.ville}', style: const TextStyle(fontSize: 12)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (client.isVeriflamme)
+                          Icon(Icons.local_fire_department, color: AppTheme.veriflammeRed, size: 18),
+                        if (client.isSauvdefib)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Icon(Icons.medical_services, color: AppTheme.sauvdefibGreen, size: 18),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
       ],
     );
   }
@@ -170,9 +272,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         const SizedBox(height: 12),
         Row(
           children: [
-            _brancheOption(Branche.veriflamme),
-            const SizedBox(width: 12),
-            _brancheOption(Branche.sauvdefib),
+            if (AppContextService.instance.isVeriflammeActive.value)
+              _brancheOption(Branche.veriflamme),
+            if (AppContextService.instance.isVeriflammeActive.value && AppContextService.instance.isSauvdefibActive.value)
+              const SizedBox(width: 12),
+            if (AppContextService.instance.isSauvdefibActive.value)
+              _brancheOption(Branche.sauvdefib),
           ],
         ),
         const SizedBox(height: 24),
@@ -237,32 +342,144 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   }
 
   Widget _buildRapportStep() {
+    if (_selectedClientId == null) return const Center(child: Text('Veuillez sélectionner un client'));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppTheme.warningOrangeLight,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.construction_rounded, color: AppTheme.warningOrange),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Le formulaire de rapport complet (éléments vérifiés, photos, matériaux) sera disponible dans une prochaine mise à jour.',
-                  style: TextStyle(color: AppTheme.warningOrange, fontSize: 13),
+        const Text('Informations sur le site', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _activiteController,
+                        decoration: const InputDecoration(labelText: 'Activité', prefixIcon: Icon(Icons.work_rounded, size: 18)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _risquesController,
+                        decoration: const InputDecoration(labelText: 'Risques particuliers', prefixIcon: Icon(Icons.warning_rounded, size: 18)),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _surfaceController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Surface (m²)', prefixIcon: Icon(Icons.square_foot_rounded, size: 18)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<bool>(
+                        value: _registreSecurite,
+                        decoration: const InputDecoration(labelText: 'Registre de sécurité', prefixIcon: Icon(Icons.menu_book_rounded, size: 18)),
+                        items: const [
+                          DropdownMenuItem(value: true, child: Text('Présent')),
+                          DropdownMenuItem(value: false, child: Text('Absent')),
+                        ],
+                        onChanged: (v) => setState(() => _registreSecurite = v!),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
+        ),
+        const SizedBox(height: 24),
+        const Text('Équipements vérifiés', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 12),
+        // Real-time equipment list from Supabase
+        StreamBuilder<List<Equipment>>(
+          stream: SupabaseService.instance.equipmentStream(_selectedClientId!),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+            
+            final equipments = snapshot.data!.where((e) => e.branche == _selectedBranche).toList();
+            // Store for PDF generation
+            _allEquipments = equipments;
+            
+            if (equipments.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('Aucun matériel enregistré pour ce client et cette branche.'));
+
+            return Column(
+              children: equipments.map((eq) {
+                final check = _equipmentChecks.firstWhere((c) => c.equipmentId == eq.id, orElse: () => EquipmentMaintenanceLine(equipmentId: eq.id, status: StatutElement.v));
+                final isChecked = _equipmentChecks.any((c) => c.equipmentId == eq.id);
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    leading: Icon(eq.type == 'Extincteur' ? Icons.fire_extinguisher : Icons.medical_services, color: isChecked ? AppTheme.successGreen : AppTheme.tertiaryText),
+                    title: Text(
+                      '${eq.type} - ${eq.location ?? "Sans emplacement"}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.capacity ?? ""} — ID: ${eq.id.substring(0, 8)}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isChecked && check.localPath != null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: Image.file(File(check.localPath!), width: 40, height: 40, fit: BoxFit.cover),
+                            ),
+                          ),
+                        if (isChecked)
+                          _statusBadge(check.status)
+                        else
+                          TextButton(
+                            onPressed: () => _showVerificationDialog(eq), 
+                            child: const Text('Vérifier')
+                          ),
+                        if (isChecked)
+                          IconButton(
+                            icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue),
+                            onPressed: () => _showVerificationDialog(eq),
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.add_a_photo_rounded, size: 20),
+                          onPressed: () => _capturePhoto(eq.id),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 20),
+        const Text('Observations & Conformité', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<Conformite>(
+          value: _selectedConformite,
+          decoration: const InputDecoration(labelText: 'Conformité globale', prefixIcon: Icon(Icons.fact_check_rounded)),
+          items: Conformite.values.map((c) => DropdownMenuItem(value: c, child: Text(c.label))).toList(),
+          onChanged: (v) => setState(() => _selectedConformite = v!),
         ),
         const SizedBox(height: 16),
         TextFormField(
+          controller: _recommandationsController,
           decoration: const InputDecoration(
-            labelText: 'Observations générales',
+            labelText: 'Observations et Préconisations',
             prefixIcon: Icon(Icons.notes_rounded),
             alignLabelWithHint: true,
           ),
@@ -272,37 +489,201 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     );
   }
 
+  void _capturePhoto(String id) async {
+    final picker = ImagePicker();
+    final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 50);
+    
+    if (photo != null) {
+      setState(() {
+        final index = _equipmentChecks.indexWhere((e) => e.equipmentId == id);
+        if (index != -1) {
+          final old = _equipmentChecks[index];
+          _equipmentChecks[index] = EquipmentMaintenanceLine(
+            equipmentId: old.equipmentId,
+            status: old.status,
+            observations: old.observations,
+            localPath: photo.path,
+            checkDetails: old.checkDetails,
+          );
+        }
+      });
+    }
+  }
+
+  void _showVerificationDialog(Equipment eq) async {
+    final existingIndex = _equipmentChecks.indexWhere((e) => e.equipmentId == eq.id);
+    final existingCheck = existingIndex != -1 ? _equipmentChecks[existingIndex] : null;
+
+    // Initial values for the form
+    StatutElement localStatus = existingCheck?.status ?? StatutElement.v;
+    Map<String, dynamic> localDetails = Map<String, dynamic>.from(existingCheck?.checkDetails ?? {});
+
+    // Default values if empty
+    if (eq.branche == Branche.veriflamme) {
+      localDetails.putIfAbsent('accessibilite', () => 'Libre');
+      localDetails.putIfAbsent('signalisation', () => 'Conforme');
+      localDetails.putIfAbsent('etat_exterieur', () => 'Bon');
+      localDetails.putIfAbsent('plombage', () => 'OK');
+      localDetails.putIfAbsent('manometre', () => 'Vert');
+    } else {
+      localDetails.putIfAbsent('etat_exterieur', () => 'Bon');
+      localDetails.putIfAbsent('voyant_etat', () => 'Vert (OK)');
+    }
+
+    final result = await showDialog<EquipmentMaintenanceLine>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Vérification : ${eq.type}'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Status
+                    DropdownButtonFormField<StatutElement>(
+                      value: localStatus,
+                      decoration: const InputDecoration(labelText: 'État (selon légende)'),
+                      items: StatutElement.values.map((s) => DropdownMenuItem(value: s, child: Text('${s.label} - ${s.fullLabel}'))).toList(),
+                      onChanged: (v) => setDialogState(() => localStatus = v!),
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (eq.branche == Branche.veriflamme) ...[
+                      // Fire specific dropdowns
+                      _buildDropdown(setDialogState, 'Accessibilité', 'accessibilite', ['Libre', 'Entravée', 'Difficile'], localDetails),
+                      _buildDropdown(setDialogState, 'Signalisation', 'signalisation', ['Conforme', 'Manquante', 'Détériorée'], localDetails),
+                      _buildDropdown(setDialogState, 'État extérieur', 'etat_exterieur', ['Bon', 'Choc', 'Corrosion'], localDetails),
+                      _buildDropdown(setDialogState, 'Plombage/Goupille', 'plombage', ['OK', 'Absent', 'Cassé'], localDetails),
+                      _buildDropdown(setDialogState, 'Manomètre', 'manometre', ['Vert', 'Rouge', 'Absent'], localDetails),
+                    ] else ...[
+                      // Medical specific dropdowns
+                      _buildDropdown(setDialogState, 'État extérieur', 'etat_exterieur', ['Bon', 'Choc', 'Sale'], localDetails),
+                      _buildDropdown(setDialogState, 'Voyant état', 'voyant_etat', ['Vert (OK)', 'Rouge (KO)', 'Absent'], localDetails),
+                      const SizedBox(height: 8),
+                      // Date Pickers
+                      _buildDatePicker(context, setDialogState, 'Péremption Électrodes', 'date_electrodes', localDetails),
+                      _buildDatePicker(context, setDialogState, 'Péremption Batterie', 'date_batterie', localDetails),
+                    ],
+                    
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      initialValue: existingCheck?.observations,
+                      decoration: const InputDecoration(labelText: 'Observations (Optionnel)'),
+                      onChanged: (v) => localDetails['observations'] = v,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context, EquipmentMaintenanceLine(
+                      equipmentId: eq.id,
+                      status: localStatus,
+                      observations: localDetails['observations'],
+                      localPath: existingCheck?.localPath,
+                      checkDetails: localDetails,
+                    ));
+                  },
+                  child: const Text('VALIDER'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      setState(() {
+        if (existingIndex != -1) {
+          _equipmentChecks[existingIndex] = result;
+        } else {
+          _equipmentChecks.add(result);
+        }
+      });
+    }
+  }
+
+  Widget _buildDropdown(Function setDialogState, String label, String key, List<String> options, Map<String, dynamic> details) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        value: details[key],
+        decoration: InputDecoration(labelText: label, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0)),
+        items: options.map((o) => DropdownMenuItem(value: o, child: Text(o, style: const TextStyle(fontSize: 13)))).toList(),
+        onChanged: (v) => setDialogState(() => details[key] = v),
+      ),
+    );
+  }
+
+  Widget _buildDatePicker(BuildContext context, Function setDialogState, String label, String key, Map<String, dynamic> details) {
+    final DateTime? current = details[key] != null ? DateTime.parse(details[key]) : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () async {
+          final date = await showDatePicker(
+            context: context,
+            initialDate: current ?? DateTime.now(),
+            firstDate: DateTime(2020),
+            lastDate: DateTime(2040),
+          );
+          if (date != null) {
+            setDialogState(() => details[key] = date.toIso8601String());
+          }
+        },
+        child: InputDecorator(
+          decoration: InputDecoration(labelText: label, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(current != null ? DateFormat('dd/MM/yyyy').format(current) : 'Choisir une date', style: const TextStyle(fontSize: 13)),
+              const Icon(Icons.calendar_today_rounded, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _updateEquipmentStatus(String id, StatutElement status) {
+    setState(() {
+      _equipmentChecks.removeWhere((e) => e.equipmentId == id);
+      _equipmentChecks.add(EquipmentMaintenanceLine(equipmentId: id, status: status));
+    });
+  }
+
+  Widget _statusBadge(StatutElement s) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: s.color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+      child: Text(s.label, style: TextStyle(color: s.color, fontWeight: FontWeight.bold, fontSize: 11)),
+    );
+  }
+
   Widget _buildSignatureStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppTheme.warningOrangeLight,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.construction_rounded, color: AppTheme.warningOrange),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Le pad de signature électronique (technicien + client) et la génération PDF seront disponibles dans une prochaine mise à jour.',
-                  style: TextStyle(color: AppTheme.warningOrange, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
+        SignaturePad(
+          label: 'Signature Technicien',
+          onSaved: (bytes) => setState(() => _signatureTechnicien = bytes),
         ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            _signaturePlaceholder('Signature technicien'),
-            const SizedBox(width: 16),
-            _signaturePlaceholder('Signature client'),
-          ],
+        const SizedBox(height: 24),
+        SignaturePad(
+          label: 'Signature Client',
+          onSaved: (bytes) => setState(() => _signatureClient = bytes),
         ),
+        if (_isSaving)
+          const Padding(
+            padding: EdgeInsets.only(top: 20),
+            child: Center(child: CircularProgressIndicator()),
+          ),
       ],
     );
   }
@@ -397,26 +778,148 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     );
   }
 
-  void _finishIntervention() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        icon: Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 48),
-        title: const Text('Intervention enregistrée'),
-        content: const Text(
-          'L\'intervention a été créée avec succès. (Données de démonstration)',
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back
-            },
-            child: const Text('OK'),
+  void _finishIntervention() async {
+    if (_signatureClient == null || _signatureTechnicien == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez signer le rapport (Technicien et Client)')));
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final client = _selectedClient!;
+      final intervention = Intervention(
+        interventionId: '', // Will be set by DB
+        clientId: _selectedClientId!,
+        branche: _selectedBranche,
+        typeIntervention: _selectedType,
+        periodicite: _selectedPeriodicite,
+        dateIntervention: DateTime.now(),
+        technicienNom: _selectedTechnician?.nomComplet ?? 'Maxence Marseille',
+        statut: StatutIntervention.terminee,
+        surfaceM2: double.tryParse(_surfaceController.text),
+        registreSecurite: _registreSecurite,
+        activiteSite: _activiteController.text.isNotEmpty ? _activiteController.text : null,
+        risquesSite: _risquesController.text.isNotEmpty ? _risquesController.text : null,
+      );
+
+      print('--- DÉBUT SYNCHRONISATION ---');
+      print('Client ID: ${client.clientId}');
+      print('Branche: ${_selectedBranche.label}');
+
+      // 1. Generate PDF locally
+      print('Étape 1: Génération du PDF...');
+      final rapport = Rapport(
+        rapportId: '',
+        numeroRapport: '${_selectedBranche == Branche.veriflamme ? "VF" : "SD"}-${DateFormat('yyyyMMdd-HHmm').format(DateTime.now())}',
+        interventionId: '',
+        typeRapport: _selectedType,
+        dateCreation: DateTime.now(),
+        conformite: _selectedConformite,
+        emailEnvoye: false,
+        recommandations: _recommandationsController.text,
+        branche: _selectedBranche,
+        equipmentChecks: _equipmentChecks,
+      );
+
+      final pdfFile = await PdfService.generateInterventionReport(
+        client: client,
+        intervention: intervention,
+        rapport: rapport,
+        equipments: _allEquipments,
+        signatureClient: _signatureClient,
+        signatureTechnicien: _signatureTechnicien,
+      );
+      print('PDF généré avec succès: ${pdfFile.path}');
+
+      // 2. Upload to Cloud (Supabase)
+      print('Étape 2: Upload du PDF vers le stockage...');
+      String pdfUrl = await SupabaseService.instance.uploadFile('rapports', 'reports/${rapport.numeroRapport}.pdf', pdfFile);
+      print('PDF uploadé. URL: $pdfUrl');
+      
+      // 3. Insert Intervention
+      print('Étape 3: Insertion de l\'intervention...');
+      final intId = await SupabaseService.instance.insertIntervention(intervention);
+      print('Intervention insérée. ID généré: $intId');
+      
+      // 4. Insert Rapport
+      print('Étape 4: Insertion du rapport...');
+      await SupabaseService.instance.insertRapport(rapport.copyWith(
+        interventionId: intId,
+        pdfUrl: pdfUrl,
+      ));
+      print('Rapport inséré avec succès.');
+
+      print('--- SYNCHRONISATION TERMINÉE ---');
+
+      setState(() => _isSaving = false);
+
+      // 5. Show Success & Open PDF
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            icon: Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 48),
+            title: const Text('Rapport terminé !'),
+            content: const Text(
+              'Le rapport a été généré avec succès et synchronisé sur le Cloud.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ReportPreviewScreen(
+                      client: client,
+                      intervention: intervention,
+                      rapport: rapport,
+                      equipments: _allEquipments,
+                      signatureClient: _signatureClient,
+                      signatureTechnicien: _signatureTechnicien,
+                    )));
+                },
+                child: const Text('VOIR LE PDF'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Go back
+                },
+                child: const Text('RETOUR'),
+              ),
+            ],
           ),
-        ],
+        );
+      }
+    } catch (e, stack) {
+      print('!!! ERREUR SYNCHRONISATION !!!');
+      print('Erreur: $e');
+      print('Stacktrace: $stack');
+      setState(() => _isSaving = false);
+      if (mounted) {
+        String errorMsg = e.toString();
+        if (e is PostgrestException) {
+          errorMsg = 'Erreur DB: ${e.message} (${e.details})';
+        } else if (e is StorageException) {
+          errorMsg = 'Erreur Stockage: ${e.message}';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erreur: $errorMsg'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 10),
+        ));
+      }
+    }
+  }
+
+  Widget _sectionTitle(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: AppTheme.primaryText,
       ),
     );
   }

@@ -6,6 +6,7 @@ import '../widgets/responsive_layout.dart';
 import 'client_detail_screen.dart';
 import 'client_form_screen.dart';
 import '../services/supabase_service.dart';
+import '../services/app_context_service.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
@@ -18,24 +19,6 @@ class _ClientsScreenState extends State<ClientsScreen> {
   String _searchQuery = '';
   String _brancheFilter = 'Toutes'; // Toutes, Veriflamme, Sauvdefib
   final _searchController = TextEditingController();
-
-  List<Client> get _filteredClients {
-    return MockData.clients.where((c) {
-      // Search filter
-      final matchesSearch = _searchQuery.isEmpty ||
-          c.raisonSociale.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.codeClient.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.ville.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.contactEmail.toLowerCase().contains(_searchQuery.toLowerCase());
-
-      // Branch filter
-      final matchesBranche = _brancheFilter == 'Toutes' ||
-          (_brancheFilter == 'Veriflamme' && c.isVeriflamme) ||
-          (_brancheFilter == 'Sauvdefib' && c.isSauvdefib);
-
-      return matchesSearch && matchesBranche;
-    }).toList();
-  }
 
   @override
   void dispose() {
@@ -75,69 +58,96 @@ class _ClientsScreenState extends State<ClientsScreen> {
           ),
         ),
       ],
-      body: StreamBuilder<List<Client>>(
-        stream: SupabaseService.instance.clientsStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
-          }
+      body: ValueListenableBuilder<bool>(
+        valueListenable: AppContextService.instance.isVeriflammeActive,
+        builder: (context, vfActive, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppContextService.instance.isSauvdefibActive,
+            builder: (context, sdActive, _) {
+              return StreamBuilder<List<Client>>(
+                stream: SupabaseService.instance.clientsStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Erreur: ${snapshot.error}'));
+                  }
 
-          final allClients = snapshot.data ?? [];
-          final clients = _filterClients(allClients);
+                  final allClients = snapshot.data ?? [];
+                  // Pass the global filters to the local filtering logic
+                  final clients = _filterClients(allClients, vfActive, sdActive);
 
-          return Column(
-            children: [
-              // Filters bar
-              Container(
-                padding: EdgeInsets.all(isMobile ? 12 : 20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(bottom: BorderSide(color: AppTheme.divider)),
-                ),
-                child: isMobile
-                    ? Column(
-                        children: [
-                          _buildSearchField(),
-                          const SizedBox(height: 12),
-                          _buildBranchFilter(),
+                      return CustomScrollView(
+                        slivers: [
+                          // Filter Header
+                          SliverToBoxAdapter(
+                            child: Container(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border(bottom: BorderSide(color: AppTheme.divider)),
+                              ),
+                              child: isMobile
+                                  ? Column(
+                                      children: [
+                                        _buildSearchField(),
+                                        const SizedBox(height: 12),
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: _buildBranchFilter(),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(flex: 2, child: _buildSearchField()),
+                                        const SizedBox(width: 16),
+                                        _buildBranchFilter(),
+                                        const SizedBox(width: 16),
+                                        _buildResultCount(clients.length),
+                                      ],
+                                    ),
+                            ),
+                          ),
+
+                          // Client List
+                          if (clients.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: _buildEmptyState(),
+                            )
+                          else
+                            SliverPadding(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              sliver: SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, index) => _buildClientCard(clients[index], isMobile),
+                                  childCount: clients.length,
+                                ),
+                              ),
+                            ),
                         ],
-                      )
-                    : Row(
-                        children: [
-                          Expanded(flex: 2, child: _buildSearchField()),
-                          const SizedBox(width: 16),
-                          _buildBranchFilter(),
-                          const SizedBox(width: 16),
-                          _buildResultCount(clients.length),
-                        ],
-                      ),
-              ),
-
-              // Client list
-              Expanded(
-                child: clients.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: EdgeInsets.all(isMobile ? 12 : 20),
-                        itemCount: clients.length,
-                        itemBuilder: (context, index) {
-                          return _buildClientCard(clients[index], isMobile);
-                        },
-                      ),
-              ),
-            ],
+                      );
+                },
+              );
+            },
           );
         },
       ),
     );
   }
 
-  List<Client> _filterClients(List<Client> allClients) {
+  List<Client> _filterClients(List<Client> allClients, bool vfActive, bool sdActive) {
     return allClients.where((c) {
+      // Global Branch filter
+      final matchesGlobalVF = vfActive && c.isVeriflamme;
+      final matchesGlobalSD = sdActive && c.isSauvdefib;
+      
+      // If none of the global branches match, we exclude the client
+      if (!matchesGlobalVF && !matchesGlobalSD) return false;
+
       // Search filter
       final matchesSearch = _searchQuery.isEmpty ||
           c.raisonSociale.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -250,21 +260,32 @@ class _ClientsScreenState extends State<ClientsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start, // Aligner en haut si le texte passe sur 2 lignes
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Text(
                 client.raisonSociale,
                 style: const TextStyle(
-                  fontWeight: FontWeight.bold, // Plus lisible
+                  fontWeight: FontWeight.bold,
                   fontSize: 15,
                 ),
-                maxLines: 2, // Autoriser 2 lignes max pour les noms longs
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: 8),
             _buildBranchBadges(client),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20, color: AppTheme.secondaryText),
+              onPressed: () => Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (_) => ClientFormScreen(clientToEdit: client))
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              visualDensity: VisualDensity.compact,
+            ),
           ],
         ),
         const SizedBox(height: 10),
@@ -377,9 +398,20 @@ class _ClientsScreenState extends State<ClientsScreen> {
           ),
         ),
         // Badges
-        _buildBranchBadges(client),
-        const SizedBox(width: 12),
-        Icon(Icons.chevron_right_rounded, color: AppTheme.tertiaryText),
+        SizedBox(
+          width: 80,
+          child: _buildBranchBadges(client),
+        ),
+        // Actions
+        IconButton(
+          icon: const Icon(Icons.edit_outlined, color: AppTheme.secondaryText, size: 20),
+          onPressed: () => Navigator.push(
+            context, 
+            MaterialPageRoute(builder: (_) => ClientFormScreen(clientToEdit: client))
+          ),
+          tooltip: 'Modifier',
+        ),
+        const Icon(Icons.chevron_right_rounded, color: AppTheme.divider),
       ],
     );
   }

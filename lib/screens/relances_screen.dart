@@ -3,6 +3,8 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/app_context_service.dart';
+import '../services/supabase_service.dart';
 
 class RelancesScreen extends StatefulWidget {
   const RelancesScreen({super.key});
@@ -13,9 +15,12 @@ class RelancesScreen extends StatefulWidget {
 class _RelancesScreenState extends State<RelancesScreen> {
   String _urgencyFilter = 'Toutes';
 
-  List<Relance> get _filteredRelances {
-    final relances = List<Relance>.from(MockData.relances)
+  List<Relance> _filterRelances(List<Relance> allRelances, bool vfActive, bool sdActive) {
+    final relances = allRelances
+      .where((r) => (r.branche == Branche.veriflamme && vfActive) || (r.branche == Branche.sauvdefib && sdActive))
+      .toList()
       ..sort((a, b) => a.dateEcheance.compareTo(b.dateEcheance));
+      
     if (_urgencyFilter == 'Urgentes') return relances.where((r) => r.joursRestants <= 7).toList();
     if (_urgencyFilter == 'Proches') return relances.where((r) => r.joursRestants > 7 && r.joursRestants <= 30).toList();
     if (_urgencyFilter == 'À venir') return relances.where((r) => r.joursRestants > 30).toList();
@@ -24,59 +29,111 @@ class _RelancesScreenState extends State<RelancesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final relances = _filteredRelances;
     final isMobile = ResponsiveLayout.isMobile(context);
-    final urgentes = MockData.relances.where((r) => r.joursRestants <= 7).length;
-    final proches = MockData.relances.where((r) => r.joursRestants > 7 && r.joursRestants <= 30).length;
-    final aVenir = MockData.relances.where((r) => r.joursRestants > 30).length;
 
     return AppScaffold(
       selectedIndex: 4,
       title: 'Relances maintenance',
-      body: Column(
-        children: [
-          Container(
-            padding: EdgeInsets.all(isMobile ? 12 : 20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: AppTheme.divider)),
-            ),
-            child: isMobile
-                ? Column(children: [
-                    Row(children: [
-                      Expanded(child: _summaryCard('Urgentes', '$urgentes', AppTheme.veriflammeRed, Icons.error_rounded)),
-                      const SizedBox(width: 10),
-                      Expanded(child: _summaryCard('< 30j', '$proches', AppTheme.warningOrange, Icons.schedule_rounded)),
-                      const SizedBox(width: 10),
-                      Expanded(child: _summaryCard('À venir', '$aVenir', AppTheme.sauvdefibGreen, Icons.check_circle_rounded)),
-                    ]),
-                    const SizedBox(height: 12),
-                    _buildFilter(),
-                  ])
-                : Row(children: [
-                    _summaryCard('Urgentes (≤7j)', '$urgentes', AppTheme.veriflammeRed, Icons.error_rounded),
-                    const SizedBox(width: 12),
-                    _summaryCard('Proches (≤30j)', '$proches', AppTheme.warningOrange, Icons.schedule_rounded),
-                    const SizedBox(width: 12),
-                    _summaryCard('À venir', '$aVenir', AppTheme.sauvdefibGreen, Icons.check_circle_rounded),
-                    const Spacer(),
-                    _buildFilter(),
-                  ]),
-          ),
-          Expanded(
-            child: relances.isEmpty
-                ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.notifications_off_rounded, size: 64, color: AppTheme.tertiaryText),
-                    const SizedBox(height: 16),
-                    Text('Aucune relance', style: TextStyle(color: AppTheme.secondaryText)),
-                  ]))
-                : ListView.builder(
-                    padding: EdgeInsets.all(isMobile ? 12 : 20),
-                    itemCount: relances.length,
-                    itemBuilder: (ctx, i) => _buildCard(relances[i], isMobile),
-                  ),
-          ),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: AppContextService.instance.isVeriflammeActive,
+        builder: (context, vfActive, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppContextService.instance.isSauvdefibActive,
+            builder: (context, sdActive, _) {
+              return StreamBuilder<List<Client>>(
+                stream: SupabaseService.instance.clientsStream,
+                builder: (context, clientSnapshot) {
+                  return StreamBuilder<List<Relance>>(
+                    stream: SupabaseService.instance.relancesStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      
+                      final allRelances = snapshot.data ?? [];
+                      final relances = _filterRelances(allRelances, vfActive, sdActive);
+                      final clients = clientSnapshot.data ?? [];
+                      final clientMap = {for (var c in clients) c.clientId: c.raisonSociale};
+
+                      final urgentes = allRelances.where((r) => ((r.branche == Branche.veriflamme && vfActive) || (r.branche == Branche.sauvdefib && sdActive)) && r.joursRestants <= 7).length;
+                      final proches = allRelances.where((r) => ((r.branche == Branche.veriflamme && vfActive) || (r.branche == Branche.sauvdefib && sdActive)) && r.joursRestants > 7 && r.joursRestants <= 30).length;
+                      final aVenir = allRelances.where((r) => ((r.branche == Branche.veriflamme && vfActive) || (r.branche == Branche.sauvdefib && sdActive)) && r.joursRestants > 30).length;
+
+                      return CustomScrollView(
+                        slivers: [
+                          // Header (Cards + Filter)
+                          SliverToBoxAdapter(
+                            child: Container(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border(bottom: BorderSide(color: AppTheme.divider)),
+                              ),
+                              child: isMobile
+                                  ? Column(children: [
+                                      Row(children: [
+                                        Expanded(child: _summaryCard('Urgentes', '$urgentes', AppTheme.veriflammeRed, Icons.error_rounded)),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: _summaryCard('< 30j', '$proches', AppTheme.warningOrange, Icons.schedule_rounded)),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: _summaryCard('À venir', '$aVenir', AppTheme.sauvdefibGreen, Icons.check_circle_rounded)),
+                                      ]),
+                                      const SizedBox(height: 12),
+                                      SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: _buildFilter(),
+                                      ),
+                                    ])
+                                  : Row(children: [
+                                      _summaryCard('Urgentes (≤7j)', '$urgentes', AppTheme.veriflammeRed, Icons.error_rounded),
+                                      const SizedBox(width: 12),
+                                      _summaryCard('Proches (≤30j)', '$proches', AppTheme.warningOrange, Icons.schedule_rounded),
+                                      const SizedBox(width: 12),
+                                      _summaryCard('À venir', '$aVenir', AppTheme.sauvdefibGreen, Icons.check_circle_rounded),
+                                      const Spacer(),
+                                      _buildFilter(),
+                                    ]),
+                            ),
+                          ),
+
+                          // Content Area
+                          if (relances.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min, 
+                                  children: [
+                                    Icon(Icons.notifications_off_rounded, size: 64, color: AppTheme.tertiaryText),
+                                    const SizedBox(height: 16),
+                                    Text('Aucune relance', style: TextStyle(color: AppTheme.secondaryText)),
+                                  ]
+                                )
+                              ),
+                            )
+                          else
+                            SliverPadding(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              sliver: SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (ctx, i) {
+                                    final r = relances[i];
+                                    final clientName = clientMap[r.clientId] ?? 'Client inconnu';
+                                    return _buildCard(r, clientName, isMobile);
+                                  },
+                                  childCount: relances.length,
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -91,7 +148,7 @@ class _RelancesScreenState extends State<RelancesScreen> {
     selected: {_urgencyFilter},
     onSelectionChanged: (v) => setState(() => _urgencyFilter = v.first),
     style: ButtonStyle(visualDensity: VisualDensity.compact,
-      textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+      textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
   );
 
   Widget _summaryCard(String label, String value, Color color, IconData icon) => Container(
@@ -107,9 +164,7 @@ class _RelancesScreenState extends State<RelancesScreen> {
     ]),
   );
 
-  Widget _buildCard(Relance r, bool isMobile) {
-    final client = MockData.clientById(r.clientId);
-    final name = client?.raisonSociale ?? 'Inconnu';
+  Widget _buildCard(Relance r, String clientName, bool isMobile) {
     final j = r.joursRestants;
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -127,7 +182,7 @@ class _RelancesScreenState extends State<RelancesScreen> {
             ),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(clientName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               const SizedBox(height: 2),
               Text('${r.typeMaintenance.label} • Éch. ${_fmt(r.dateEcheance)} • ${r.nbRelancesEnvoyees} envoi(s)',
                 style: TextStyle(color: AppTheme.secondaryText, fontSize: 12)),

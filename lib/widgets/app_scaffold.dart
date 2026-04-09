@@ -79,12 +79,9 @@ class _AppScaffoldState extends State<AppScaffold> {
       appBar: AppBar(
         title: Text(widget.title),
         leading: isMobile
-            ? Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Image.asset(
-                  'assets/images/global_prevention.png',
-                  errorBuilder: (_, __, ___) => const Icon(Icons.security, color: AppTheme.primary),
-                ),
+            ? IconButton(
+                icon: const Icon(Icons.menu_rounded),
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
               )
             : null,
         automaticallyImplyLeading: false,
@@ -131,7 +128,17 @@ class _AppScaffoldState extends State<AppScaffold> {
           ),
         ),
       ),
-      // Plus de Drawer sur mobile, on utilise le BottomBar
+      drawer: isMobile
+          ? SidebarMenu(
+              selectedIndex: widget.selectedIndex,
+              onItemSelected: (index) {
+                Navigator.pop(context); // Close drawer
+                _navigateTo(index);
+              },
+              onLogout: _logout,
+              isDrawer: true,
+            )
+          : null,
       body: Row(
         children: [
           if (!isMobile)

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/app_context_service.dart';
 
 /// Navigation menu item data.
 class NavItem {
@@ -54,106 +55,130 @@ class SidebarMenu extends StatelessWidget {
               ],
       ),
       child: SafeArea(
-        child: Column(
-          children: [
+        child: CustomScrollView(
+          slivers: [
             // Brand header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: Row(
-                children: [
-                  Image.asset(
-                    'assets/images/global_prevention.png',
-                    height: 36,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.security,
-                      color: Colors.white,
-                      size: 32,
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                child: Row(
+                  children: [
+                    Image.asset(
+                      'assets/images/global_prevention.png',
+                      height: 36,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.security,
+                        color: Colors.white,
+                        size: 32,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Global Prevention',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Global Prevention',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
                           ),
-                        ),
-                        Text(
-                          'GMAO v1.0',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 11,
+                          Text(
+                            'GMAO v1.0',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.5),
+                              fontSize: 11,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
 
-            // Branch badges
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  _BranchBadge(
-                    label: 'Veriflamme',
-                    color: AppTheme.veriflammeRed,
-                    icon: Icons.local_fire_department,
-                  ),
-                  const SizedBox(width: 8),
-                  _BranchBadge(
-                    label: 'Sauvdefib',
-                    color: AppTheme.sauvdefibGreen,
-                    icon: Icons.medical_services,
-                  ),
-                ],
+            // Branch Toggle Area
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: [
+                     ValueListenableBuilder<bool>(
+                      valueListenable: AppContextService.instance.isVeriflammeActive,
+                      builder: (context, isActive, _) {
+                        return _BranchSwitch(
+                          label: 'Veriflamme',
+                          color: AppTheme.veriflammeRed,
+                          icon: Icons.local_fire_department,
+                          isActive: isActive,
+                          onChanged: (_) => AppContextService.instance.toggleVeriflamme(),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                     ValueListenableBuilder<bool>(
+                      valueListenable: AppContextService.instance.isSauvdefibActive,
+                      builder: (context, isActive, _) {
+                        return _BranchSwitch(
+                          label: 'Sauvdefib',
+                          color: AppTheme.sauvdefibGreen,
+                          icon: Icons.medical_services,
+                          isActive: isActive,
+                          onChanged: (_) => AppContextService.instance.toggleSauvdefib(),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
 
-            const SizedBox(height: 24),
-            Divider(color: Colors.white.withOpacity(0.1), height: 1),
-            const SizedBox(height: 8),
+            SliverToBoxAdapter(
+              child: Column(
+                children: [
+                  const SizedBox(height: 24),
+                  Divider(color: Colors.white.withOpacity(0.1), height: 1),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
 
             // Menu items
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  final isSelected = index == selectedIndex;
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final item = items[index];
+                    final isSelected = index == selectedIndex;
+                    final showDivider = index == items.length - 1;
 
-                  // Insert separator before "Administration"
-                  final showDivider = index == items.length - 1;
-
-                  return Column(
-                    children: [
-                      if (showDivider) ...[
-                        Divider(color: Colors.white.withOpacity(0.1), height: 24),
+                    return Column(
+                      children: [
+                        if (showDivider) ...[
+                          Divider(color: Colors.white.withOpacity(0.1), height: 24),
+                        ],
+                        _SidebarItem(
+                          icon: item.icon,
+                          title: item.title,
+                          isSelected: isSelected,
+                          onTap: () {
+                            onItemSelected(index);
+                            if (isDrawer) Navigator.pop(context);
+                          },
+                        ),
                       ],
-                      _SidebarItem(
-                        icon: item.icon,
-                        title: item.title,
-                        isSelected: isSelected,
-                        onTap: () {
-                          onItemSelected(index);
-                          if (isDrawer) Navigator.pop(context);
-                        },
-                      ),
-                    ],
-                  );
-                },
+                    );
+                  },
+                  childCount: items.length,
+                ),
               ),
             ),
 
-            const SizedBox(height: 12),
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
           ],
         ),
       ),
@@ -239,45 +264,58 @@ class _SidebarItemState extends State<_SidebarItem> {
   }
 }
 
-class _BranchBadge extends StatelessWidget {
+class _BranchSwitch extends StatelessWidget {
   final String label;
   final Color color;
   final IconData icon;
+  final bool isActive;
+  final ValueChanged<bool> onChanged;
 
-  const _BranchBadge({
+  const _BranchSwitch({
     required this.label,
     required this.color,
     required this.icon,
+    required this.isActive,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.3)),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: isActive ? color.withOpacity(0.12) : Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isActive ? color.withOpacity(0.3) : Colors.white.withOpacity(0.1),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 14),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-                overflow: TextOverflow.ellipsis,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: isActive ? color : Colors.white.withOpacity(0.3), size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isActive ? Colors.white : Colors.white.withOpacity(0.5),
+                fontSize: 13,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
-          ],
-        ),
+          ),
+          Transform.scale(
+            scale: 0.7,
+            child: Switch(
+              value: isActive,
+              onChanged: onChanged,
+              activeColor: color,
+              activeTrackColor: color.withOpacity(0.3),
+              inactiveThumbColor: Colors.white.withOpacity(0.4),
+              inactiveTrackColor: Colors.white.withOpacity(0.1),
+            ),
+          ),
+        ],
       ),
     );
   }

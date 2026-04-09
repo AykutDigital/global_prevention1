@@ -6,7 +6,8 @@ import '../services/supabase_service.dart';
 import '../models/models.dart';
 
 class ClientFormScreen extends StatefulWidget {
-  const ClientFormScreen({super.key});
+  final Client? clientToEdit;
+  const ClientFormScreen({super.key, this.clientToEdit});
 
   @override
   State<ClientFormScreen> createState() => _ClientFormScreenState();
@@ -19,25 +20,68 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   String _typeClient = 'PME';
   bool _isSearchingSiret = false;
 
-  // Controllers for auto-fill
-  final _codeController = TextEditingController(text: 'GP-2026-0009');
-  final _raisonSocialeController = TextEditingController();
-  final _siretController = TextEditingController();
-  final _nafController = TextEditingController();
-  final _tvaController = TextEditingController();
-  final _adresseController = TextEditingController();
-  final _cpController = TextEditingController();
-  final _villeController = TextEditingController();
-  final _contactNomController = TextEditingController();
-  final _contactTelController = TextEditingController();
-  final _contactEmailController = TextEditingController();
-  final _contactFonctionController = TextEditingController();
-  final _billingEmailController = TextEditingController();
-  final _floorController = TextEditingController();
-  final _digicodeController = TextEditingController();
-  final _gpsController = TextEditingController();
-  final _paymentTermsController = TextEditingController(text: '30');
-  final _notesController = TextEditingController();
+  // Controllers
+  late final TextEditingController _codeController;
+  late final TextEditingController _raisonSocialeController;
+  late final TextEditingController _siretController;
+  late final TextEditingController _nafController;
+  late final TextEditingController _tvaController;
+  late final TextEditingController _adresseController;
+  late final TextEditingController _cpController;
+  late final TextEditingController _villeController;
+  late final TextEditingController _contactNomController;
+  late final TextEditingController _contactTelController;
+  late final TextEditingController _contactEmailController;
+  late final TextEditingController _contactFonctionController;
+  late final TextEditingController _billingEmailController;
+  late final TextEditingController _floorController;
+  late final TextEditingController _digicodeController;
+  late final TextEditingController _gpsController;
+  late final TextEditingController _paymentTermsController;
+  late final TextEditingController _notesController;
+  late final TextEditingController _activiteController;
+  late final TextEditingController _risquesController;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.clientToEdit;
+    
+    _isVeriflamme = c?.isVeriflamme ?? true;
+    _isSauvdefib = c?.isSauvdefib ?? false;
+    _typeClient = _getTypeLabel(c?.typeClient);
+
+    _codeController = TextEditingController(text: c?.codeClient ?? 'GP-2026-${DateTime.now().millisecond.toString().padLeft(4, '0')}');
+    _raisonSocialeController = TextEditingController(text: c?.raisonSociale ?? '');
+    _siretController = TextEditingController(text: c?.siret ?? '');
+    _nafController = TextEditingController(text: c?.codeNaf ?? '');
+    _tvaController = TextEditingController(text: c?.tvaIntra ?? '');
+    _adresseController = TextEditingController(text: c?.adresse ?? '');
+    _cpController = TextEditingController(text: c?.codePostal ?? '');
+    _villeController = TextEditingController(text: c?.ville ?? '');
+    _contactNomController = TextEditingController(text: c?.contactNom ?? '');
+    _contactTelController = TextEditingController(text: c?.contactTel ?? '');
+    _contactEmailController = TextEditingController(text: c?.contactEmail ?? '');
+    _contactFonctionController = TextEditingController(text: c?.contactPosition ?? '');
+    _billingEmailController = TextEditingController(text: c?.billingEmail ?? '');
+    _floorController = TextEditingController(text: c?.floor ?? '');
+    _digicodeController = TextEditingController(text: c?.accessInstructions ?? '');
+    _gpsController = TextEditingController(text: c?.gpsCoordinates ?? '');
+    _paymentTermsController = TextEditingController(text: (c?.paymentTerms ?? 30).toString());
+    _notesController = TextEditingController(text: c?.noteInterne ?? '');
+    _activiteController = TextEditingController(text: c?.activite ?? '');
+    _risquesController = TextEditingController(text: c?.risquesParticuliers ?? '');
+  }
+
+  String _getTypeLabel(TypeClient? type) {
+    if (type == null) return 'PME';
+    switch (type) {
+      case TypeClient.particulier: return 'Particulier';
+      case TypeClient.pme: return 'PME';
+      case TypeClient.grandeEntreprise: return 'Grande entreprise';
+      case TypeClient.collectivite: return 'Collectivité';
+    }
+  }
 
   @override
   void dispose() {
@@ -59,6 +103,8 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _gpsController.dispose();
     _paymentTermsController.dispose();
     _notesController.dispose();
+    _activiteController.dispose();
+    _risquesController.dispose();
     super.dispose();
   }
 
@@ -105,7 +151,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nouveau client'),
+        title: Text(widget.clientToEdit == null ? 'Nouveau client' : 'Modifier le client'),
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () => Navigator.pop(context),
@@ -208,6 +254,54 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
                                 DropdownMenuItem(value: 'Collectivité', child: Text('Coll.')),
                               ],
                               onChanged: (v) => setState(() => _typeClient = v!),
+                            ),
+                          ),
+                        ],
+                      ),
+                  const SizedBox(height: 16),
+                  isMobile
+                    ? Column(
+                        children: [
+                          TextFormField(
+                            controller: _activiteController,
+                            decoration: const InputDecoration(
+                              labelText: 'Activité',
+                              prefixIcon: Icon(Icons.work_rounded),
+                              hintText: 'ex: Restauration, Entrepôt...',
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _risquesController,
+                            decoration: const InputDecoration(
+                              labelText: 'Risques particuliers',
+                              prefixIcon: Icon(Icons.warning_rounded),
+                              hintText: 'ex: Stockage gaz, Produits inflammables...',
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _activiteController,
+                              decoration: const InputDecoration(
+                                labelText: 'Activité',
+                                prefixIcon: Icon(Icons.work_rounded),
+                                hintText: 'ex: Restauration, Entrepôt...',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _risquesController,
+                              decoration: const InputDecoration(
+                                labelText: 'Risques particuliers',
+                                prefixIcon: Icon(Icons.warning_rounded),
+                                hintText: 'ex: Stockage gaz, Produits inflammables...',
+                              ),
                             ),
                           ),
                         ],
@@ -597,17 +691,23 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           accessInstructions: _digicodeController.text.isNotEmpty ? _digicodeController.text : null,
           gpsCoordinates: _gpsController.text.isNotEmpty ? _gpsController.text : null,
           paymentTerms: int.tryParse(_paymentTermsController.text) ?? 30,
+          activite: _activiteController.text,
+          risquesParticuliers: _risquesController.text,
           noteInterne: _notesController.text.isNotEmpty ? _notesController.text : null,
         );
 
         // Save to Supabase
-        await SupabaseService.instance.insertClient(newClient);
+        if (widget.clientToEdit != null) {
+          await SupabaseService.instance.updateClient(widget.clientToEdit!.clientId, newClient);
+        } else {
+          await SupabaseService.instance.insertClient(newClient);
+        }
 
         if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Client enregistré avec succès dans le Cloud !'),
+          SnackBar(
+            content: Text(widget.clientToEdit == null ? 'Client enregistré avec succès !' : 'Client mis à jour avec succès !'),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppTheme.sauvdefibGreen,
           ),

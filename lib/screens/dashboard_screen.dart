@@ -4,6 +4,8 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/app_context_service.dart';
+import '../services/supabase_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -15,38 +17,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  final Map<DateTime, List<_CalEvent>> _events = {};
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    final today = DateTime.now();
-    _events[DateTime(today.year, today.month, today.day)] = [
-      _CalEvent('Maintenance Extincteurs — Hôtel Le Méridien', true),
-      _CalEvent('Vérification DAE — Clinique Sainte-Anne', false),
-    ];
-    _events[DateTime(today.year, today.month, today.day).add(const Duration(days: 2))] = [
-      _CalEvent('Installation RIA — Mairie Boulogne', true),
-    ];
-    _events[DateTime(today.year, today.month, today.day).subtract(const Duration(days: 1))] = [
-      _CalEvent('Relance Annuelle Defib — Lycée Victor Hugo', false),
-    ];
-    _events[DateTime(today.year, today.month, today.day).add(const Duration(days: 5))] = [
-      _CalEvent('Maintenance Colonnes Sèches — Les 4 Temps', true),
-    ];
-    _events[DateTime(today.year, today.month, today.day).add(const Duration(days: 7))] = [
-      _CalEvent('Maintenance Extincteurs — Crèche Petits Loups', true),
-    ];
-  }
-
-  List<_CalEvent> _getEventsForDay(DateTime day) {
-    return _events[DateTime(day.year, day.month, day.day)] ?? [];
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedEvents = _selectedDay != null ? _getEventsForDay(_selectedDay!) : <_CalEvent>[];
     final isMobile = ResponsiveLayout.isMobile(context);
     final isTablet = ResponsiveLayout.isTablet(context);
 
@@ -58,62 +37,124 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Nouvelle Intervention'),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(isMobile ? 14 : 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Title
-            Text('Aperçu global', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 20),
+      body: ValueListenableBuilder<bool>(
+        valueListenable: AppContextService.instance.isVeriflammeActive,
+        builder: (context, vfActive, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppContextService.instance.isSauvdefibActive,
+            builder: (context, sdActive, _) {
+              return StreamBuilder<List<Client>>(
+                stream: SupabaseService.instance.clientsStream,
+                builder: (context, clientSnapshot) {
+                  return StreamBuilder<List<Intervention>>(
+                    stream: SupabaseService.instance.interventionsStream,
+                    builder: (context, interventionSnapshot) {
+                      return StreamBuilder<List<Relance>>(
+                        stream: SupabaseService.instance.relancesStream,
+                        builder: (context, relanceSnapshot) {
+                          if (clientSnapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
 
-            // KPIs — responsive grid
-            _buildKpiGrid(isMobile, isTablet),
-            const SizedBox(height: 28),
+                          final clients = clientSnapshot.data ?? [];
+                          final interventions = interventionSnapshot.data ?? [];
+                          final relances = relanceSnapshot.data ?? [];
 
-            // Calendar + Events — responsive layout
-            isMobile
-                ? Column(children: [
-                    _buildCalendar(),
-                    const SizedBox(height: 16),
-                    _buildEventsList(selectedEvents),
-                  ])
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 2, child: _buildCalendar()),
-                      const SizedBox(width: 20),
-                      Expanded(flex: 1, child: _buildEventsList(selectedEvents)),
-                    ],
-                  ),
-            const SizedBox(height: 28),
+                          final selectedEvents = _selectedDay != null 
+                              ? _getEventsForDay(interventions, _selectedDay!) 
+                              : <Intervention>[];
 
-            // Quick actions
-            Text('Actions rapides', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 14),
-            _buildQuickActions(isMobile),
-          ],
-        ),
+                          return SingleChildScrollView(
+                            padding: EdgeInsets.all(isMobile ? 14 : 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Title
+                                Text('Aperçu global', style: Theme.of(context).textTheme.titleLarge),
+                                const SizedBox(height: 20),
+
+                                // KPIs — responsive grid
+                                _buildKpiGrid(clients, relances, isMobile, isTablet, vfActive, sdActive),
+                                const SizedBox(height: 28),
+
+                                // Calendar + Events — responsive layout
+                                isMobile
+                                    ? Column(children: [
+                                        _buildCalendar(interventions, vfActive, sdActive),
+                                        const SizedBox(height: 16),
+                                        _buildEventsList(selectedEvents, vfActive, sdActive),
+                                      ])
+                                    : Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(flex: 2, child: _buildCalendar(interventions, vfActive, sdActive)),
+                                          const SizedBox(width: 20),
+                                          Expanded(flex: 1, child: _buildEventsList(selectedEvents, vfActive, sdActive)),
+                                        ],
+                                      ),
+                                const SizedBox(height: 28),
+
+                                // Quick actions
+                                Text('Actions rapides', style: Theme.of(context).textTheme.titleLarge),
+                                const SizedBox(height: 14),
+                                _buildQuickActions(isMobile),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
       ),
     );
   }
 
-  Widget _buildKpiGrid(bool isMobile, bool isTablet) {
-    final kpis = [
-      _KpiData('Clients Veriflamme', '${MockData.clientsVeriflammeCount}', AppTheme.veriflammeRed, Icons.local_fire_department, 'assets/images/veriflamme.png'),
-      _KpiData('Clients Sauvdefib', '${MockData.clientsSauvdefibCount}', AppTheme.sauvdefibGreen, Icons.medical_services, 'assets/images/sauvdefib.png'),
-      _KpiData('Relances urgentes', '${MockData.relancesUrgentes.length}', AppTheme.warningOrange, Icons.warning_amber_rounded, null),
-      _KpiData('Clients communs', '${MockData.clientsCommunsCount}', AppTheme.infoBlue, Icons.people_rounded, null),
-    ];
+  List<Intervention> _getEventsForDay(List<Intervention> interventions, DateTime day) {
+    return interventions.where((i) => isSameDay(i.dateIntervention, day)).toList();
+  }
+
+  Widget _buildKpiGrid(List<Client> clients, List<Relance> relances, bool isMobile, bool isTablet, bool vfActive, bool sdActive) {
+    final kpis = <_KpiData>[];
+    
+    if (vfActive) {
+      final vfCount = clients.where((c) => c.isVeriflamme && c.actif).length;
+      kpis.add(_KpiData('Clients Veriflamme', '$vfCount', AppTheme.veriflammeRed, Icons.local_fire_department, 'assets/images/veriflamme.png'));
+    }
+    if (sdActive) {
+      final sdCount = clients.where((c) => c.isSauvdefib && c.actif).length;
+      kpis.add(_KpiData('Clients Sauvdefib', '$sdCount', AppTheme.sauvdefibGreen, Icons.medical_services, 'assets/images/sauvdefib.png'));
+    }
+    
+    final urgentRelances = relances.where((r) => 
+        ((r.branche == Branche.veriflamme && vfActive) || (r.branche == Branche.sauvdefib && sdActive)) &&
+        r.statut != StatutRelance.cloturee &&
+        r.joursRestants <= 30
+    ).length;
+    
+    kpis.add(_KpiData('Relances urgentes', '$urgentRelances', AppTheme.warningOrange, Icons.warning_amber_rounded, null));
+    
+    if (vfActive && sdActive) {
+      final commonCount = clients.where((c) => c.isVeriflamme && c.isSauvdefib && c.actif).length;
+      kpis.add(_KpiData('Clients communs', '$commonCount', AppTheme.infoBlue, Icons.people_rounded, null));
+    }
 
     if (isMobile) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      // Ajustement dynamique du ratio selon la largeur pour éviter les coupures
+      final dynamicAspectRatio = screenWidth < 360 ? 1.1 : 1.3;
+      
       return GridView.count(
         crossAxisCount: 2,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 1.3, // Augmenté pour laisser plus de place verticale sur mobile
+        childAspectRatio: dynamicAspectRatio,
         children: kpis.map((k) => _buildKpiCard(k)).toList(),
       );
     }
@@ -128,7 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildKpiCard(_KpiData data) {
     return Container(
-      padding: const EdgeInsets.all(16), // Légèrement réduit pour gagner de la place
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -159,7 +200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Text(
               data.value, 
               style: TextStyle(
-                fontSize: 24, // Réduit de 30 à 24 pour éviter les débordements verticaux
+                fontSize: 24,
                 fontWeight: FontWeight.w800, 
                 color: data.color
               ),
@@ -171,7 +212,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildCalendar() {
+  Widget _buildCalendar(List<Intervention> interventions, bool vfActive, bool sdActive) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -179,13 +220,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         border: Border.all(color: AppTheme.cardBorder),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
-      child: TableCalendar<_CalEvent>(
+      child: TableCalendar<Intervention>(
         locale: 'fr_FR',
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: DateTime.utc(2030, 12, 31),
         focusedDay: _focusedDay,
         calendarFormat: _calendarFormat,
-        eventLoader: _getEventsForDay,
+        eventLoader: (day) => _getEventsForDay(interventions, day).where((i) => 
+          (i.branche == Branche.veriflamme && vfActive) || (i.branche == Branche.sauvdefib && sdActive)
+        ).toList(),
         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
         onDaySelected: (selected, focused) => setState(() {
           _selectedDay = selected;
@@ -212,7 +255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 width: 6, height: 6,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: event.isVeriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,
+                  color: event.branche == Branche.veriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,
                 ),
               )).toList(),
             );
@@ -222,7 +265,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildEventsList(List<_CalEvent> events) {
+  Widget _buildEventsList(List<Intervention> events, bool vfActive, bool sdActive) {
+    final filteredEvents = events.where((e) => (e.branche == Branche.veriflamme && vfActive) || (e.branche == Branche.sauvdefib && sdActive)).toList();
+    
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -240,25 +285,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text('Interventions du jour', style: Theme.of(context).textTheme.titleMedium),
           ]),
           const SizedBox(height: 14),
-          if (events.isEmpty)
+          if (filteredEvents.isEmpty)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
               child: Center(child: Text('Aucune intervention planifiée.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13))),
             ),
-          ...events.map((event) => Container(
+          ...filteredEvents.map((event) => Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: event.isVeriflamme ? AppTheme.veriflammeRedLight : AppTheme.sauvdefibGreenLight,
+              color: event.branche.lightColor,
               borderRadius: BorderRadius.circular(8),
-              border: Border(left: BorderSide(color: event.isVeriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen, width: 4)),
+              border: Border(left: BorderSide(color: event.branche.color, width: 4)),
             ),
-            child: Row(children: [
-              Expanded(child: Text(event.title, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
-              Icon(event.isVeriflamme ? Icons.local_fire_department : Icons.medical_services,
-                color: event.isVeriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen, size: 18),
-            ]),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${event.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} - ${event.technicienNom}', 
+                    style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                ),
+                const SizedBox(width: 8),
+                Icon(event.branche.icon, color: event.branche.color, size: 18),
+              ],
+            ),
           )),
         ],
       ),
@@ -270,16 +324,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       spacing: 12,
       runSpacing: 12,
       children: [
-        _quickAction(Icons.person_add_rounded, 'Nouveau client', () async {
-          final result = await Navigator.pushNamed(context, '/client-form');
-          if (result == true && mounted) {
-            // Dashboard doesn't show list, but we can show a refresh snackbar or similar if needed
-            // For now, just ensure it doesn't crash
-          }
-        }),
+        _quickAction(Icons.person_add_rounded, 'Nouveau client', () => Navigator.pushNamed(context, '/client-form')),
         _quickAction(Icons.add_circle_rounded, 'Nouvelle intervention', () => Navigator.pushNamed(context, '/new-intervention')),
-        _quickAction(Icons.people_rounded, 'Voir les clients', () => Navigator.pushReplacementNamed(context, '/clients')),
-        _quickAction(Icons.notifications_active_rounded, 'Relances urgentes', () => Navigator.pushReplacementNamed(context, '/relances')),
+        _quickAction(Icons.people_rounded, 'Voir les clients', () => Navigator.pushNamed(context, '/clients')),
+        _quickAction(Icons.notifications_active_rounded, 'Relances urgentes', () => Navigator.pushNamed(context, '/relances')),
       ],
     );
   }
@@ -303,12 +351,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-}
-
-class _CalEvent {
-  final String title;
-  final bool isVeriflamme;
-  _CalEvent(this.title, this.isVeriflamme);
 }
 
 class _KpiData {

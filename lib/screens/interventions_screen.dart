@@ -3,6 +3,8 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
+import '../services/app_context_service.dart';
+import '../services/supabase_service.dart';
 
 class InterventionsScreen extends StatefulWidget {
   const InterventionsScreen({super.key});
@@ -15,23 +17,30 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
   String _statutFilter = 'Toutes';
   String _brancheFilter = 'Toutes';
 
-  List<Intervention> get _filteredInterventions {
-    return MockData.interventions.where((i) {
+  List<Intervention> _filterInterventions(List<Intervention> allInterventions, bool vfActive, bool sdActive) {
+    return allInterventions.where((i) {
+      // Global Branch filter
+      final matchesGlobalVF = vfActive && i.branche == Branche.veriflamme;
+      final matchesGlobalSD = sdActive && i.branche == Branche.sauvdefib;
+      if (!matchesGlobalVF && !matchesGlobalSD) return false;
+
       final matchStatut = _statutFilter == 'Toutes' ||
           (_statutFilter == 'Planifiée' && i.statut == StatutIntervention.planifiee) ||
           (_statutFilter == 'Terminée' && i.statut == StatutIntervention.terminee) ||
           (_statutFilter == 'En cours' && i.statut == StatutIntervention.enCours);
+      
+      // Local filter (optional refined filtering)
       final matchBranche = _brancheFilter == 'Toutes' ||
           (_brancheFilter == 'Veriflamme' && i.branche == Branche.veriflamme) ||
           (_brancheFilter == 'Sauvdefib' && i.branche == Branche.sauvdefib);
+          
       return matchStatut && matchBranche;
     }).toList()
-      ..sort((a, b) => a.dateIntervention.compareTo(b.dateIntervention));
+      ..sort((a, b) => b.dateIntervention.compareTo(a.dateIntervention));
   }
 
   @override
   Widget build(BuildContext context) {
-    final interventions = _filteredInterventions;
     final isMobile = ResponsiveLayout.isMobile(context);
 
     return AppScaffold(
@@ -50,60 +59,109 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
           ),
         ),
       ],
-      body: Column(
-        children: [
-          // Filters
-          Container(
-            padding: EdgeInsets.all(isMobile ? 12 : 20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: AppTheme.divider)),
-            ),
-            child: isMobile
-                ? Column(
-                    children: [
-                      _buildStatutFilter(),
-                      const SizedBox(height: 12),
-                      _buildBrancheFilter(),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      _buildStatutFilter(),
-                      const SizedBox(width: 16),
-                      _buildBrancheFilter(),
-                      const Spacer(),
-                      Text(
-                        '${interventions.length} intervention(s)',
-                        style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-                      ),
-                    ],
-                  ),
-          ),
+      body: ValueListenableBuilder<bool>(
+        valueListenable: AppContextService.instance.isVeriflammeActive,
+        builder: (context, vfActive, _) {
+          return ValueListenableBuilder<bool>(
+            valueListenable: AppContextService.instance.isSauvdefibActive,
+            builder: (context, sdActive, _) {
+              return StreamBuilder<List<Client>>(
+                stream: SupabaseService.instance.clientsStream,
+                builder: (context, clientSnapshot) {
+                  return StreamBuilder<List<Intervention>>(
+                    stream: SupabaseService.instance.interventionsStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Erreur: ${snapshot.error}'));
+                      }
 
-          // List
-          Expanded(
-            child: interventions.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.build_circle_outlined, size: 64, color: AppTheme.tertiaryText),
-                        const SizedBox(height: 16),
-                        Text('Aucune intervention trouvée',
-                            style: TextStyle(color: AppTheme.secondaryText, fontSize: 15)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: EdgeInsets.all(isMobile ? 12 : 20),
-                    itemCount: interventions.length,
-                    itemBuilder: (context, index) {
-                      return _buildInterventionCard(interventions[index], isMobile);
+                      final allInterventions = snapshot.data ?? [];
+                      final interventions = _filterInterventions(allInterventions, vfActive, sdActive);
+                      final clients = clientSnapshot.data ?? [];
+                      final clientMap = {for (var c in clients) c.clientId: c.raisonSociale};
+
+                      return CustomScrollView(
+                        slivers: [
+                          // Filter Header
+                          SliverToBoxAdapter(
+                            child: Container(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border(bottom: BorderSide(color: AppTheme.divider)),
+                              ),
+                              child: isMobile
+                                  ? Column(
+                                      children: [
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: _buildStatutFilter(),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: _buildBrancheFilter(),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        _buildStatutFilter(),
+                                        const SizedBox(width: 16),
+                                        _buildBrancheFilter(),
+                                        const Spacer(),
+                                        Text(
+                                          '${interventions.length} intervention(s)',
+                                          style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+
+                          // Interventions List
+                          if (interventions.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.build_circle_outlined, size: 64, color: AppTheme.tertiaryText),
+                                    const SizedBox(height: 16),
+                                    Text('Aucune intervention trouvée',
+                                        style: TextStyle(color: AppTheme.secondaryText, fontSize: 15)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            SliverPadding(
+                              padding: EdgeInsets.all(isMobile ? 12 : 20),
+                              sliver: SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, index) {
+                                    final intervention = interventions[index];
+                                    final clientName = clientMap[intervention.clientId] ?? 'Client inconnu';
+                                    return _buildInterventionCard(intervention, clientName, isMobile);
+                                  },
+                                  childCount: interventions.length,
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
                     },
-                  ),
-          ),
-        ],
+                  );
+                },
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -149,10 +207,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     );
   }
 
-  Widget _buildInterventionCard(Intervention intervention, bool isMobile) {
-    final client = MockData.clientById(intervention.clientId);
-    final clientName = client?.raisonSociale ?? 'Client inconnu';
-
+  Widget _buildInterventionCard(Intervention intervention, String clientName, bool isMobile) {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: InkWell(
