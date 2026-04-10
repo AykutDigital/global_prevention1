@@ -1,10 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
 import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
+import '../widgets/image_viewer.dart';
+import 'report_preview_screen.dart';
 
 class InterventionsScreen extends StatefulWidget {
   const InterventionsScreen({super.key});
@@ -14,29 +20,38 @@ class InterventionsScreen extends StatefulWidget {
 }
 
 class _InterventionsScreenState extends State<InterventionsScreen> {
-  String _statutFilter = 'Toutes';
-  String _brancheFilter = 'Toutes';
+  DateTime _selectedDate = DateTime.now();
+  DateTime _focusedDay = DateTime.now();
+  CalendarFormat _calendarFormat = CalendarFormat.month;
 
-  List<Intervention> _filterInterventions(List<Intervention> allInterventions, bool vfActive, bool sdActive) {
-    return allInterventions.where((i) {
-      // Global Branch filter
-      final matchesGlobalVF = vfActive && i.branche == Branche.veriflamme;
-      final matchesGlobalSD = sdActive && i.branche == Branche.sauvdefib;
-      if (!matchesGlobalVF && !matchesGlobalSD) return false;
+  @override
+  void initState() {
+    super.initState();
+    // Normalize to date only
+    _selectedDate = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+  }
 
-      final matchStatut = _statutFilter == 'Toutes' ||
-          (_statutFilter == 'Planifiée' && i.statut == StatutIntervention.planifiee) ||
-          (_statutFilter == 'Terminée' && i.statut == StatutIntervention.terminee) ||
-          (_statutFilter == 'En cours' && i.statut == StatutIntervention.enCours);
-      
-      // Local filter (optional refined filtering)
-      final matchBranche = _brancheFilter == 'Toutes' ||
-          (_brancheFilter == 'Veriflamme' && i.branche == Branche.veriflamme) ||
-          (_brancheFilter == 'Sauvdefib' && i.branche == Branche.sauvdefib);
-          
-      return matchStatut && matchBranche;
-    }).toList()
-      ..sort((a, b) => b.dateIntervention.compareTo(a.dateIntervention));
+  void _changeDate(int days) {
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: days));
+      _focusedDay = _selectedDate;
+    });
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      locale: const Locale('fr', 'FR'),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = DateTime(picked.year, picked.month, picked.day);
+        _focusedDay = _selectedDate;
+      });
+    }
   }
 
   @override
@@ -45,7 +60,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
 
     return AppScaffold(
       selectedIndex: 1,
-      title: 'Interventions',
+      title: 'Planning & Interventions',
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 12),
@@ -65,99 +80,54 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
           return ValueListenableBuilder<bool>(
             valueListenable: AppContextService.instance.isSauvdefibActive,
             builder: (context, sdActive, _) {
-              return StreamBuilder<List<Client>>(
-                stream: SupabaseService.instance.clientsStream,
-                builder: (context, clientSnapshot) {
-                  return StreamBuilder<List<Intervention>>(
-                    stream: SupabaseService.instance.interventionsStream,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Erreur: ${snapshot.error}'));
-                      }
+              return Column(
+                children: [
+                  // 1. Navigation par date (Vue du jour)
+                  _buildDayNavigator(context, isMobile),
 
-                      final allInterventions = snapshot.data ?? [];
-                      final interventions = _filterInterventions(allInterventions, vfActive, sdActive);
-                      final clients = clientSnapshot.data ?? [];
-                      final clientMap = {for (var c in clients) c.clientId: c.raisonSociale};
+                  // 2. Liste des interventions du jour
+                  Expanded(
+                    child: StreamBuilder<List<Intervention>>(
+                      stream: SupabaseService.instance.interventionsByDateStream(_selectedDate),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
 
-                      return CustomScrollView(
-                        slivers: [
-                          // Filter Header
-                          SliverToBoxAdapter(
-                            child: Container(
-                              padding: EdgeInsets.all(isMobile ? 12 : 20),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border(bottom: BorderSide(color: AppTheme.divider)),
-                              ),
-                              child: isMobile
-                                  ? Column(
-                                      children: [
-                                        SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: _buildStatutFilter(),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: _buildBrancheFilter(),
-                                        ),
-                                      ],
-                                    )
-                                  : Row(
-                                      children: [
-                                        _buildStatutFilter(),
-                                        const SizedBox(width: 16),
-                                        _buildBrancheFilter(),
-                                        const Spacer(),
-                                        Text(
-                                          '${interventions.length} intervention(s)',
-                                          style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          ),
+                        final interventions = (snapshot.data ?? []).where((i) {
+                          final matchesGlobalVF = vfActive && i.branche == Branche.veriflamme;
+                          final matchesGlobalSD = sdActive && i.branche == Branche.sauvdefib;
+                          return matchesGlobalVF || matchesGlobalSD;
+                        }).toList();
 
-                          // Interventions List
-                          if (interventions.isEmpty)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.build_circle_outlined, size: 64, color: AppTheme.tertiaryText),
-                                    const SizedBox(height: 16),
-                                    Text('Aucune intervention trouvée',
-                                        style: TextStyle(color: AppTheme.secondaryText, fontSize: 15)),
-                                  ],
-                                ),
-                              ),
-                            )
-                          else
-                            SliverPadding(
-                              padding: EdgeInsets.all(isMobile ? 12 : 20),
-                              sliver: SliverList(
-                                delegate: SliverChildBuilderDelegate(
-                                  (context, index) {
-                                    final intervention = interventions[index];
-                                    final clientName = clientMap[intervention.clientId] ?? 'Client inconnu';
-                                    return _buildInterventionCard(intervention, clientName, isMobile);
-                                  },
-                                  childCount: interventions.length,
-                                ),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  );
-                },
+                        return StreamBuilder<List<Client>>(
+                          stream: SupabaseService.instance.clientsStream,
+                          builder: (context, clientSnapshot) {
+                            final clients = clientSnapshot.data ?? [];
+                            final clientMap = {for (var c in clients) c.clientId: c};
+
+                            if (interventions.isEmpty) {
+                              return _buildEmptyState();
+                            }
+
+                            return ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              itemCount: interventions.length,
+                              itemBuilder: (context, index) {
+                                final intervention = interventions[index];
+                                final client = clientMap[intervention.clientId];
+                                return _buildInterventionCard(intervention, client, isMobile);
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+
+                  // 3. Calendrier mensuel en bas (Sticky/Bottom)
+                  _buildMonthlyCalendar(vfActive, sdActive),
+                ],
               );
             },
           );
@@ -166,198 +136,776 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     );
   }
 
-  Widget _buildStatutFilter() {
-    return SegmentedButton<String>(
-      segments: const [
-        ButtonSegment(value: 'Toutes', label: Text('Toutes')),
-        ButtonSegment(value: 'Planifiée', label: Text('Planifiée')),
-        ButtonSegment(value: 'En cours', label: Text('En cours')),
-        ButtonSegment(value: 'Terminée', label: Text('Terminée')),
-      ],
-      selected: {_statutFilter},
-      onSelectionChanged: (v) => setState(() => _statutFilter = v.first),
-      style: ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-      ),
-    );
-  }
+  Widget _buildDayNavigator(BuildContext context, bool isMobile) {
+    final dayLabel = DateFormat('EEEE d MMMM', 'fr_FR').format(_selectedDate);
+    final isToday = isSameDay(_selectedDate, DateTime.now());
 
-  Widget _buildBrancheFilter() {
-    return SegmentedButton<String>(
-      segments: const [
-        ButtonSegment(value: 'Toutes', label: Text('Toutes')),
-        ButtonSegment(
-          value: 'Veriflamme',
-          icon: Icon(Icons.local_fire_department, size: 16),
-          label: Text('VF'),
-        ),
-        ButtonSegment(
-          value: 'Sauvdefib',
-          icon: Icon(Icons.medical_services, size: 16),
-          label: Text('SD'),
-        ),
-      ],
-      selected: {_brancheFilter},
-      onSelectionChanged: (v) => setState(() => _brancheFilter = v.first),
-      style: ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppTheme.divider)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildInterventionCard(Intervention intervention, String clientName, bool isMobile) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Détail intervention — en cours de développement'),
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: isMobile
-              ? _buildMobileInterventionCard(intervention, clientName)
-              : _buildDesktopInterventionCard(intervention, clientName),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMobileInterventionCard(Intervention intervention, String clientName) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: intervention.branche.lightColor,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(intervention.branche.icon, color: intervention.branche.color, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            onPressed: () => _changeDate(-1),
+            icon: const Icon(Icons.chevron_left_rounded, size: 28),
+            color: AppTheme.primary,
+          ),
+          InkWell(
+            onTap: () => _selectDate(context),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(clientName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   Text(
-                    '${intervention.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} • ${intervention.periodicite.label}',
-                    style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
+                    dayLabel.toUpperCase(),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: isToday ? AppTheme.primary : AppTheme.primaryText,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  if (isToday)
+                    Container(
+                      margin: const EdgeInsets.only(top: 2),
+                      height: 3,
+                      width: 40,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    )
+                  else
+                    Text(
+                      'Cliquer pour changer',
+                      style: TextStyle(color: AppTheme.secondaryText, fontSize: 10),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: () => _changeDate(1),
+            icon: const Icon(Icons.chevron_right_rounded, size: 28),
+            color: AppTheme.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.calendar_today_outlined, size: 64, color: AppTheme.tertiaryText.withOpacity(0.5)),
+          const SizedBox(height: 16),
+          Text(
+            'Pas d\'interventions prévues pour ce jour',
+            style: TextStyle(color: AppTheme.secondaryText, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInterventionCard(Intervention intervention, Client? client, bool isMobile) {
+    final clientName = client?.raisonSociale ?? 'Client inconnu';
+    final city = client?.ville ?? '-';
+    
+    // Formatting time
+    String timeRange = '';
+    if (intervention.startTime != null) {
+      timeRange = intervention.startTime!;
+      if (intervention.endTime != null) {
+        timeRange += ' - ${intervention.endTime}';
+      }
+    } else {
+      timeRange = DateFormat('HH:mm').format(intervention.scheduledDate);
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                // Time/Icon Section
+                Container(
+                  width: 65,
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.background,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        timeRange.split(' - ').first,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                      ),
+                      const SizedBox(height: 4),
+                      Icon(intervention.branche.icon, color: intervention.branche.color, size: 18),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                
+                // Info Section
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        clientName,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on_rounded, size: 12, color: AppTheme.tertiaryText),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              city, 
+                              style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.person_outline_rounded, size: 12, color: AppTheme.tertiaryText),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              intervention.technicienNom, 
+                              style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Status Badge
+                _buildStatusBadge(intervention.statut),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            
+            // Type & Actions Section (Vertical orientation to prevent overlaps)
+            Row(
+              children: [
+                Icon(
+                  intervention.typeIntervention == TypeIntervention.installation ? Icons.rocket_launch_rounded : Icons.handyman_rounded,
+                  size: 14,
+                  color: AppTheme.infoBlue,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  intervention.typeIntervention == TypeIntervention.installation ? "INSTALLATION" : "MAINTENANCE",
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppTheme.infoBlue, letterSpacing: 0.5),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _showPhotosModal(intervention),
+                    icon: const Icon(Icons.photo_library_rounded, size: 16),
+                    label: const Text('Photos', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.grey.withOpacity(0.05),
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _showQuickEditModal(intervention),
+                    icon: const Icon(Icons.edit_rounded, size: 16),
+                    label: const Text('Modifier', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.grey.withOpacity(0.05),
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _handleReportPressed(intervention),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Rapport', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
             ),
-            _statutBadge(intervention.statut),
           ],
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Icon(Icons.calendar_today_rounded, size: 14, color: AppTheme.secondaryText),
-            const SizedBox(width: 6),
-            Text(
-              _formatDate(intervention.dateIntervention),
-              style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-            ),
-            const SizedBox(width: 16),
-            Icon(Icons.person_outline, size: 14, color: AppTheme.secondaryText),
-            const SizedBox(width: 6),
-            Text(
-              intervention.technicienNom,
-              style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildDesktopInterventionCard(Intervention intervention, String clientName) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: intervention.branche.lightColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(intervention.branche.icon, color: intervention.branche.color, size: 22),
-        ),
-        const SizedBox(width: 16),
-        SizedBox(
-          width: 120,
-          child: Text(
-            _formatDate(intervention.dateIntervention),
-            style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryText, fontSize: 14),
-          ),
-        ),
-        Expanded(
-          flex: 3,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(clientName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              Text(
-                '${intervention.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} • ${intervention.periodicite.label}',
-                style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          flex: 2,
-          child: Row(
-            children: [
-              Icon(Icons.person_outline, size: 14, color: AppTheme.secondaryText),
-              const SizedBox(width: 6),
-              Text(
-                intervention.technicienNom,
-                style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-        if (intervention.dureeMinutes != null)
-          SizedBox(
-            width: 80,
-            child: Text(
-              '${intervention.dureeMinutes} min',
-              style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
-            ),
-          ),
-        _statutBadge(intervention.statut),
-        const SizedBox(width: 8),
-        Icon(Icons.chevron_right_rounded, color: AppTheme.tertiaryText),
-      ],
-    );
-  }
-
-  Widget _statutBadge(StatutIntervention statut) {
+  Widget _buildStatusBadge(StatutIntervention statut) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: statut.color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
+        color: statut.color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: statut.color.withOpacity(0.3), width: 1),
       ),
       child: Text(
-        statut.label,
-        style: TextStyle(color: statut.color, fontWeight: FontWeight.w600, fontSize: 12),
+        statut.label.toUpperCase(),
+        style: TextStyle(
+          color: statut.color,
+          fontWeight: FontWeight.w900,
+          fontSize: 10,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  Widget _buildMonthlyCalendar(bool vfActive, bool sdActive) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppTheme.divider)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: StreamBuilder<List<Intervention>>(
+        stream: SupabaseService.instance.interventionsStream,
+        builder: (context, snapshot) {
+          final interventions = snapshot.data ?? [];
+          
+          return TableCalendar<Intervention>(
+            locale: 'fr_FR',
+            firstDay: DateTime.utc(2020, 1, 1),
+            lastDay: DateTime.utc(2030, 12, 31),
+            focusedDay: _focusedDay,
+            calendarFormat: _calendarFormat,
+            startingDayOfWeek: StartingDayOfWeek.monday,
+            availableCalendarFormats: const {
+              CalendarFormat.month: 'Mois',
+            },
+            headerStyle: const HeaderStyle(
+              titleCentered: true,
+              formatButtonVisible: false,
+              titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              leftChevronIcon: Icon(Icons.chevron_left, size: 20),
+              rightChevronIcon: Icon(Icons.chevron_right, size: 20),
+            ),
+            calendarStyle: CalendarStyle(
+              outsideDaysVisible: false,
+              markerSize: 6,
+              todayDecoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              todayTextStyle: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
+              selectedDecoration: const BoxDecoration(
+                color: AppTheme.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+            selectedDayPredicate: (day) => isSameDay(_selectedDate, day),
+            onDaySelected: (selected, focused) {
+              setState(() {
+                _selectedDate = DateTime(selected.year, selected.month, selected.day);
+                _focusedDay = focused;
+              });
+            },
+            onFormatChanged: (format) => setState(() => _calendarFormat = format),
+            onPageChanged: (focused) => _focusedDay = focused,
+            eventLoader: (day) {
+              return interventions.where((i) {
+                final matchDay = isSameDay(i.scheduledDate, day);
+                final matchActive = (i.branche == Branche.veriflamme && vfActive) || 
+                                     (i.branche == Branche.sauvdefib && sdActive);
+                return matchDay && matchActive;
+              }).toList();
+            },
+            calendarBuilders: CalendarBuilders(
+              markerBuilder: (context, date, events) {
+                if (events.isEmpty) return null;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: events.take(3).map((e) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: e.branche.color,
+                    ),
+                  )).toList(),
+                );
+              },
+            ),
+            rowHeight: 42,
+            daysOfWeekHeight: 20,
+            daysOfWeekStyle: const DaysOfWeekStyle(
+              weekdayStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              weekendStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _handleReportPressed(Intervention intervention) async {
+    // 1. Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final supabase = SupabaseService.instance;
+      
+      // 2. Fetch Client and Report
+      final client = await supabase.getClientById(intervention.clientId);
+      final report = await supabase.getRapportByInterventionId(intervention.interventionId);
+
+      // 3. Hide loading
+      if (mounted) Navigator.of(context).pop();
+
+      if (client == null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de trouver le client.')));
+        return;
+      }
+
+      if (report == null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Le rapport n\'a pas encore été généré pour cette intervention.')));
+        return;
+      }
+
+      // 4. Navigate to preview
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => ReportPreviewScreen(
+              client: client,
+              intervention: intervention,
+              rapport: report,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Safety hide
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+      }
+    }
+  }
+
+  void _showPhotosModal(Intervention intervention) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (context) => _InterventionPhotosModal(intervention: intervention),
+    );
+  }
+
+  void _showQuickEditModal(Intervention intervention) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (context) => _QuickEditModal(intervention: intervention),
+    );
+  }
+}
+
+class _QuickEditModal extends StatefulWidget {
+  final Intervention intervention;
+  const _QuickEditModal({required this.intervention});
+
+  @override
+  State<_QuickEditModal> createState() => _QuickEditModalState();
+}
+
+class _QuickEditModalState extends State<_QuickEditModal> {
+  late StatutIntervention _tempStatut;
+  late DateTime _tempDate;
+  late TimeOfDay _tempStartTime;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tempStatut = widget.intervention.statut;
+    _tempDate = widget.intervention.scheduledDate;
+    final timeStr = widget.intervention.startTime ?? "08:00";
+    final parts = timeStr.split(':');
+    _tempStartTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Modification Rapide', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          
+          const Text('Statut de l\'intervention', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: StatutIntervention.values.map((s) {
+              final isSelected = _tempStatut == s;
+              return ChoiceChip(
+                label: Text(s.label, style: TextStyle(color: isSelected ? Colors.white : s.color, fontSize: 12)),
+                selected: isSelected,
+                selectedColor: s.color,
+                onSelected: (val) => setState(() => _tempStatut = s),
+              );
+            }).toList(),
+          ),
+          
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Date', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final d = await showDatePicker(context: context, initialDate: _tempDate, firstDate: DateTime(2020), lastDate: DateTime(2030));
+                        if (d != null) setState(() => _tempDate = d);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(border: Border.all(color: AppTheme.divider), borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today, size: 16),
+                            const SizedBox(width: 8),
+                            Text(DateFormat('dd/MM/yyyy').format(_tempDate)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Heure', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final t = await showTimePicker(context: context, initialTime: _tempStartTime);
+                        if (t != null) setState(() => _tempStartTime = t);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(border: Border.all(color: AppTheme.divider), borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.access_time, size: 16),
+                            const SizedBox(width: 8),
+                            Text(_tempStartTime.format(context)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : () async {
+                setState(() => _isSaving = true);
+                
+                final startStr = '${_tempStartTime.hour.toString().padLeft(2, '0')}:${_tempStartTime.minute.toString().padLeft(2, '0')}';
+                final updated = widget.intervention.copyWith(
+                  statut: _tempStatut,
+                  scheduledDate: _tempDate,
+                  startTime: startStr,
+                  updatedAt: DateTime.now(),
+                );
+                
+                try {
+                  await SupabaseService.instance.updateIntervention(updated);
+                  if (mounted) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Intervention mise à jour')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    setState(() => _isSaving = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e')),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                padding: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('ENREGISTRER LES MODIFICATIONS', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InterventionPhotosModal extends StatefulWidget {
+  final Intervention intervention;
+  const _InterventionPhotosModal({required this.intervention});
+
+  @override
+  State<_InterventionPhotosModal> createState() => _InterventionPhotosModalState();
+}
+
+class _InterventionPhotosModalState extends State<_InterventionPhotosModal> {
+  final ImagePicker _picker = ImagePicker();
+  bool _isUploading = false;
+
+  Future<void> _addPhoto(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(
+      source: source,
+      imageQuality: 50,
+      maxWidth: 1024,
+    );
+    
+    if (image != null) {
+      if (!mounted) return;
+      setState(() => _isUploading = true);
+      try {
+        await SupabaseService.instance.uploadInterventionPhoto(widget.intervention.interventionId, File(image.path));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo ajoutée')));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        }
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Photos d\'intervention', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text('Réf: ${widget.intervention.interventionId.substring(0, 8)}', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+            ],
+          ),
+          const Divider(height: 30),
+          if (_isUploading)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 20),
+              child: LinearProgressIndicator(),
+            ),
+          Expanded(
+            child: StreamBuilder<List<InterventionPhoto>>(
+              stream: SupabaseService.instance.getInterventionPhotosStream(widget.intervention.interventionId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final photos = snapshot.data ?? [];
+                if (photos.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.no_photography_outlined, size: 48, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text('Aucune photo pour le moment', style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  );
+                }
+
+                return GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: photos.length,
+                  itemBuilder: (context, index) {
+                    final photo = photos[index];
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FullScreenImageViewer(imageUrl: photo.url))),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Hero(
+                              tag: photo.url,
+                              child: Image.network(photo.url, fit: BoxFit.cover),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: -5,
+                          top: -5,
+                          child: IconButton(
+                            icon: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                              child: const Icon(Icons.delete_forever, color: Colors.white, size: 16),
+                            ),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Supprimer la photo ?'),
+                                  content: const Text('Cette action est irréversible.'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ANNULER')),
+                                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('SUPPRIMER', style: TextStyle(color: Colors.red))),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                await SupabaseService.instance.deleteInterventionPhoto(photo.id, photo.url);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _addPhoto(ImageSource.camera),
+                  icon: const Icon(Icons.camera_alt_rounded),
+                  label: const Text('Caméra'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _addPhoto(ImageSource.gallery),
+                  icon: const Icon(Icons.photo_library_rounded),
+                  label: const Text('Galerie'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }

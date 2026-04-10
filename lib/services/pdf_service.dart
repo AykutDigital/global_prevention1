@@ -21,9 +21,11 @@ class PdfService {
     Uint8List? logoBytes,
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
+    List<File>? interventionPhotos,
   }) async {
     final pdf = pw.Document();
-    final dateStr = DateFormat('dd/MM/yyyy').format(rapport.dateCreation);
+    final displayDate = intervention.actualDate ?? intervention.scheduledDate;
+    final dateStr = DateFormat('dd/MM/yyyy').format(displayDate);
     
     // UI Colors from template
     final headerBlue = PdfColor.fromInt(0xFFB6D0E2);
@@ -286,6 +288,31 @@ class PdfService {
                 ),
               ],
             ),
+
+            // Photos Section
+            if (interventionPhotos != null && interventionPhotos.isNotEmpty) ...[
+              pw.SizedBox(height: 30),
+              pw.Text('PHOTOS DE L\'INTERVENTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12, color: primaryColor)),
+              pw.SizedBox(height: 10),
+              pw.Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: interventionPhotos.map((file) {
+                  return pw.Container(
+                    width: 240, // Reduced to fit 2 photos clearly
+                    height: 180,
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.grey300),
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                    ),
+                    child: pw.Image(
+                      pw.MemoryImage(file.readAsBytesSync()),
+                      fit: pw.BoxFit.cover,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
           ];
         },
         footer: (pw.Context context) {
@@ -360,6 +387,7 @@ class PdfService {
     required List<Equipment> equipments,
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
+    List<File>? interventionPhotos,
   }) async {
     // Load branch logo
     Uint8List? logoBytes;
@@ -378,6 +406,7 @@ class PdfService {
       logoBytes: logoBytes,
       signatureClient: signatureClient,
       signatureTechnicien: signatureTechnicien,
+      interventionPhotos: interventionPhotos,
     );
     
     final output = await getTemporaryDirectory();

@@ -131,8 +131,10 @@ class _AppScaffoldState extends State<AppScaffold> {
       drawer: isMobile
           ? SidebarMenu(
               selectedIndex: widget.selectedIndex,
-              onItemSelected: (index) {
-                Navigator.pop(context); // Close drawer
+              onItemSelected: (index) async {
+                if (Navigator.of(context).canPop()) {
+                  await Navigator.of(context).maybePop(); // Close drawer safely
+                }
                 _navigateTo(index);
               },
               onLogout: _logout,

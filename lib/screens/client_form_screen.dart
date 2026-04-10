@@ -51,7 +51,10 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _isSauvdefib = c?.isSauvdefib ?? false;
     _typeClient = _getTypeLabel(c?.typeClient);
 
-    _codeController = TextEditingController(text: c?.codeClient ?? 'GP-2026-${DateTime.now().millisecond.toString().padLeft(4, '0')}');
+    _codeController = TextEditingController(text: c?.codeClient ?? '');
+    if (c == null) {
+      _loadNextClientCode();
+    }
     _raisonSocialeController = TextEditingController(text: c?.raisonSociale ?? '');
     _siretController = TextEditingController(text: c?.siret ?? '');
     _nafController = TextEditingController(text: c?.codeNaf ?? '');
@@ -106,6 +109,13 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _activiteController.dispose();
     _risquesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadNextClientCode() async {
+    final nextCode = await SupabaseService.instance.getNextClientCode();
+    setState(() {
+      _codeController.text = nextCode;
+    });
   }
 
   Future<void> _lookupSiret() async {
@@ -187,9 +197,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
                       helperText: 'Généré automatiquement — modifiable par admin',
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.refresh_rounded),
-                        onPressed: () {
-                          _codeController.text = 'GP-2026-${DateTime.now().millisecond.toString().padLeft(4, '0')}';
-                        },
+                        onPressed: _loadNextClientCode,
                       ),
                     ),
                   ),
@@ -670,7 +678,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           clientId: '', // Supabase will generate a UUID if we skip it in toJson or let it handle it
           codeClient: _codeController.text.isNotEmpty 
               ? _codeController.text 
-              : 'GP-${DateTime.now().year}-${DateTime.now().millisecond}',
+              : 'GP-${DateTime.now().year}-XXXX', // Fallback, should not happen with auto-load
           raisonSociale: _raisonSocialeController.text,
           typeClient: _getTypeClientEnum(_typeClient),
           adresse: _adresseController.text,

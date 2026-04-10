@@ -7,6 +7,7 @@ import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
 import '../services/pdf_service.dart';
 import 'report_preview_screen.dart';
+import 'client_reports_detail_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -27,7 +28,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     super.dispose();
   }
 
-  // Logique de traitement des données
+  // Logique de traitement des données pour regrouper par client
   Map<Client, Map<Branche, List<Rapport>>> _processReports(
     List<Rapport> allRapports,
     List<Client> allClients,
@@ -35,7 +36,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     bool vfActive,
     bool sdActive,
   ) {
-    // 1. Filtrage initial
+    // 1. Filtrage initial des rapports
     final filtered = allRapports.where((r) {
       // Filtre de Branche Globale
       final matchesGlobalVF = vfActive && r.branche == Branche.veriflamme;
@@ -63,7 +64,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ? a.dateCreation.compareTo(b.dateCreation) 
         : b.dateCreation.compareTo(a.dateCreation));
 
-    // 3. Groupage
+    // 3. Groupage par client
     final Map<Client, Map<Branche, List<Rapport>>> grouped = {};
 
     for (var rapport in filtered) {
@@ -138,8 +139,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       (context, index) {
                                         final client = groupedData.keys.elementAt(index);
                                         final branches = groupedData[client]!;
-                                        final interventionsForClient = allInterventions.where((i) => i.clientId == client.clientId).toList();
-                                        return _buildClientGroupCard(client, branches, interventionsForClient, isMobile);
+                                        return _buildClientGroupCard(client, branches, allInterventions, isMobile);
                                       },
                                       childCount: groupedData.length,
                                     ),
@@ -169,7 +169,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       child: Column(
         children: [
-          // Row 1: Search & Sort
           Row(
             children: [
               Expanded(
@@ -177,7 +176,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   controller: _searchController,
                   onChanged: (v) => setState(() => _searchQuery = v),
                   decoration: InputDecoration(
-                    hintText: 'Rechercher un client ou un rapport...',
+                    hintText: 'Rechercher un client...',
                     prefixIcon: const Icon(Icons.search_rounded),
                     suffixIcon: _searchQuery.isNotEmpty 
                         ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () => setState(() {
@@ -194,7 +193,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // Row 2: Conformity Filters
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -265,138 +263,111 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ) {
     final vfRapports = branches[Branche.veriflamme]!;
     final sdRapports = branches[Branche.sauvdefib]!;
+    final totalCount = vfRapports.length + sdRapports.length;
+
+    // Find latest report date across all branches
+    DateTime? latestDate;
+    if (vfRapports.isNotEmpty) latestDate = vfRapports.first.dateCreation;
+    if (sdRapports.isNotEmpty) {
+      final sdLatest = sdRapports.first.dateCreation;
+      if (latestDate == null || sdLatest.isAfter(latestDate)) {
+        latestDate = sdLatest;
+      }
+    }
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 20),
+      margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: AppTheme.divider),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Client Header
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.background,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: AppTheme.infoBlue,
-                  radius: 18,
-                  child: Text(client.raisonSociale[0].toUpperCase(), 
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        client.raisonSociale, 
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text('${client.codeClient} • ${client.ville}', 
-                          style: TextStyle(color: AppTheme.secondaryText, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.business_rounded, color: AppTheme.tertiaryText, size: 20),
-              ],
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context, 
+          MaterialPageRoute(
+            builder: (_) => ClientReportsDetailScreen(
+              client: client,
+              branches: branches,
+              allInterventions: allInterventions,
             ),
           ),
-          const Divider(height: 1),
-          
-          // Branch Sections
-          if (vfRapports.isNotEmpty)
-            _buildBranchSection(Branche.veriflamme, vfRapports, allInterventions, client, isMobile),
-          
-          if (vfRapports.isNotEmpty && sdRapports.isNotEmpty)
-            const Divider(height: 1, indent: 16, endIndent: 16),
-
-          if (sdRapports.isNotEmpty)
-            _buildBranchSection(Branche.sauvdefib, sdRapports, allInterventions, client, isMobile),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBranchSection(
-    Branche branche, 
-    List<Rapport> rapports, 
-    List<Intervention> allInterventions,
-    Client client,
-    bool isMobile
-  ) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
             children: [
-              Icon(branche.icon, color: branche.color, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                branche.label.toUpperCase(),
-                style: TextStyle(color: branche.color, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 1),
+              CircleAvatar(
+                backgroundColor: AppTheme.infoBlue.withOpacity(0.1),
+                radius: 24,
+                child: Text(
+                  client.raisonSociale[0].toUpperCase(), 
+                  style: TextStyle(color: AppTheme.infoBlue, fontWeight: FontWeight.bold, fontSize: 18)
+                ),
               ),
-              const Spacer(),
-              Text('${rapports.length} rapport(s)', style: TextStyle(color: AppTheme.tertiaryText, fontSize: 11)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      client.raisonSociale, 
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          '${client.codeClient} • ${client.ville}', 
+                          style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
+                        ),
+                        if (latestDate != null) ...[
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('•', style: TextStyle(color: AppTheme.tertiaryText, fontSize: 13)),
+                              const SizedBox(width: 8),
+                              Icon(Icons.history_rounded, size: 12, color: AppTheme.primary.withOpacity(0.6)),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatDate(latestDate),
+                                style: TextStyle(color: AppTheme.primary.withOpacity(0.8), fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$totalCount rapport${totalCount > 1 ? 's' : ''}',
+                      style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Icon(Icons.chevron_right_rounded, color: AppTheme.tertiaryText, size: 20),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          ...rapports.map((r) {
-            final intervention = allInterventions.firstWhere((i) => i.interventionId == r.interventionId, orElse: () => allInterventions.first);
-            return _buildSimpleRapportTile(r, intervention, client, isMobile);
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSimpleRapportTile(Rapport rapport, Intervention intervention, Client client, bool isMobile) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(rapport.numeroRapport, 
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 2),
-                Text(
-                  '${_formatDate(rapport.dateCreation)} • ${rapport.typeRapport == TypeIntervention.installation ? "Install." : "Maint."}',
-                  style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          _conformiteBadge(rapport.conformite),
-          const SizedBox(width: 12),
-          IconButton(
-            icon: Icon(Icons.visibility_rounded, color: AppTheme.primary, size: 20),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportPreviewScreen(
-              client: client,
-              intervention: intervention,
-              rapport: rapport,
-            ))),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -419,20 +390,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
               child: const Text('Réinitialiser les filtres'),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _conformiteBadge(Conformite conformite) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: conformite.color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        conformite.label,
-        style: TextStyle(color: conformite.color, fontWeight: FontWeight.bold, fontSize: 11),
       ),
     );
   }

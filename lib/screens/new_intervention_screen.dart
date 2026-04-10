@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -42,6 +43,14 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   Conformite _selectedConformite = Conformite.conforme;
   bool _isSaving = false;
   List<Equipment> _allEquipments = []; // Cache for PDF generation
+  
+  // Date & Time planning
+  DateTime _scheduledDate = DateTime.now();
+  TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 10, minute: 0);
+  DateTime? _actualDate;
+  final List<XFile> _interventionPhotos = [];
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -347,7 +356,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Informations sur le site', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+        const Text('Planification & Site', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
         const SizedBox(height: 12),
         Card(
           elevation: 0,
@@ -356,6 +365,55 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: InkWell(
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _scheduledDate,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                          );
+                          if (d != null) setState(() => _scheduledDate = d);
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(labelText: 'Date d\'intervention', prefixIcon: Icon(Icons.calendar_today_rounded, size: 18)),
+                          child: Text(DateFormat('dd/MM/yyyy').format(_scheduledDate)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final t = await showTimePicker(context: context, initialTime: _startTime);
+                          if (t != null) setState(() => _startTime = t);
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(labelText: 'Début', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
+                          child: Text(_startTime.format(context)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final t = await showTimePicker(context: context, initialTime: _endTime);
+                          if (t != null) setState(() => _endTime = t);
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(labelText: 'Fin', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
+                          child: Text(_endTime.format(context)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
@@ -397,6 +455,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 16),
+                const Text('Photos de l\'intervention', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                const SizedBox(height: 12),
+                _buildPhotoGrid(),
               ],
             ),
           ),
@@ -791,28 +855,44 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       final intervention = Intervention(
         interventionId: '', // Will be set by DB
         clientId: _selectedClientId!,
+        technicianId: _selectedTechnician?.id,
         branche: _selectedBranche,
         typeIntervention: _selectedType,
         periodicite: _selectedPeriodicite,
         dateIntervention: DateTime.now(),
-        technicienNom: _selectedTechnician?.nomComplet ?? 'Maxence Marseille',
+        scheduledDate: _scheduledDate,
+        actualDate: _actualDate ?? _scheduledDate,
+        startTime: '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+        endTime: '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+        technicienNom: _selectedTechnician?.nomComplet ?? 'Technicien',
         statut: StatutIntervention.terminee,
         surfaceM2: double.tryParse(_surfaceController.text),
         registreSecurite: _registreSecurite,
-        activiteSite: _activiteController.text.isNotEmpty ? _activiteController.text : null,
-        risquesSite: _risquesController.text.isNotEmpty ? _risquesController.text : null,
+        activiteSite: _activiteController.text,
+        risquesSite: _risquesController.text,
+        updatedAt: DateTime.now(),
       );
+      // 1. Insert Intervention
+      print('Étape 1: Création de l\'intervention...');
+      final interventionId = await SupabaseService.instance.insertIntervention(intervention);
+      print('Intervention créée avec ID: $interventionId');
 
-      print('--- DÉBUT SYNCHRONISATION ---');
-      print('Client ID: ${client.clientId}');
-      print('Branche: ${_selectedBranche.label}');
+      // 2. Upload photos to Supabase Storage
+      print('Étape 2: Upload des photos...');
+      for (var photo in _interventionPhotos) {
+        await SupabaseService.instance.uploadInterventionPhoto(interventionId, File(photo.path));
+      }
 
-      // 1. Generate PDF locally
-      print('Étape 1: Génération du PDF...');
+      // 3. Generate PDF locally
+      print('Étape 3: Génération du PDF...');
+      
+      // Generate standard report number
+      final reportNumber = await SupabaseService.instance.getNextReportNumber(_selectedBranche);
+
       final rapport = Rapport(
         rapportId: '',
-        numeroRapport: '${_selectedBranche == Branche.veriflamme ? "VF" : "SD"}-${DateFormat('yyyyMMdd-HHmm').format(DateTime.now())}',
-        interventionId: '',
+        numeroRapport: reportNumber,
+        interventionId: interventionId,
         typeRapport: _selectedType,
         dateCreation: DateTime.now(),
         conformite: _selectedConformite,
@@ -820,6 +900,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         recommandations: _recommandationsController.text,
         branche: _selectedBranche,
         equipmentChecks: _equipmentChecks,
+        reportCreatedAt: DateTime.now(),
       );
 
       final pdfFile = await PdfService.generateInterventionReport(
@@ -829,23 +910,18 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         equipments: _allEquipments,
         signatureClient: _signatureClient,
         signatureTechnicien: _signatureTechnicien,
+        interventionPhotos: _interventionPhotos.map((p) => File(p.path)).toList(),
       );
       print('PDF généré avec succès: ${pdfFile.path}');
 
-      // 2. Upload to Cloud (Supabase)
-      print('Étape 2: Upload du PDF vers le stockage...');
+      // 4. Upload PDF to Cloud (Supabase)
+      print('Étape 4: Upload du PDF vers le stockage...');
       String pdfUrl = await SupabaseService.instance.uploadFile('rapports', 'reports/${rapport.numeroRapport}.pdf', pdfFile);
       print('PDF uploadé. URL: $pdfUrl');
       
-      // 3. Insert Intervention
-      print('Étape 3: Insertion de l\'intervention...');
-      final intId = await SupabaseService.instance.insertIntervention(intervention);
-      print('Intervention insérée. ID généré: $intId');
-      
-      // 4. Insert Rapport
-      print('Étape 4: Insertion du rapport...');
+      // 5. Insert Rapport
+      print('Étape 5: Insertion du rapport...');
       await SupabaseService.instance.insertRapport(rapport.copyWith(
-        interventionId: intId,
         pdfUrl: pdfUrl,
       ));
       print('Rapport inséré avec succès.');
@@ -922,5 +998,80 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         color: AppTheme.primaryText,
       ),
     );
+  }
+
+  Widget _buildPhotoGrid() {
+    return Column(
+      children: [
+        if (_interventionPhotos.isNotEmpty)
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: _interventionPhotos.length,
+            itemBuilder: (context, index) {
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: kIsWeb 
+                        ? Image.network(_interventionPhotos[index].path, fit: BoxFit.cover)
+                        : Image.file(File(_interventionPhotos[index].path), fit: BoxFit.cover),
+                  ),
+                  Positioned(
+                    right: 4,
+                    top: 4,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _interventionPhotos.removeAt(index)),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                        child: const Icon(Icons.close, color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _pickInterventionPhoto(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt_rounded),
+              label: const Text('Prendre une photo'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () => _pickInterventionPhoto(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_rounded),
+              label: const Text('Galerie'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickInterventionPhoto(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(
+      source: source,
+      imageQuality: 50,
+      maxWidth: 1024,
+    );
+    if (image != null) {
+      setState(() => _interventionPhotos.add(image));
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 }

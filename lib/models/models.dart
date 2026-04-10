@@ -10,7 +10,7 @@ enum TypeIntervention { installation, maintenance }
 
 enum Periodicite { annuelle, quinquennale, decennale, ponctuelle }
 
-enum StatutIntervention { planifiee, enCours, terminee, annulee }
+enum StatutIntervention { planifiee, confirmee, enCours, reportee, annulee, terminee }
 
 enum Conformite { conforme, nonConforme, avecReserves }
 
@@ -38,25 +38,33 @@ extension StatutInterventionExt on StatutIntervention {
     switch (this) {
       case StatutIntervention.planifiee:
         return 'Planifiée';
+      case StatutIntervention.confirmee:
+        return 'Confirmée';
       case StatutIntervention.enCours:
         return 'En cours';
-      case StatutIntervention.terminee:
-        return 'Terminée';
+      case StatutIntervention.reportee:
+        return 'Reportée';
       case StatutIntervention.annulee:
         return 'Annulée';
+      case StatutIntervention.terminee:
+        return 'Terminée';
     }
   }
 
   Color get color {
     switch (this) {
       case StatutIntervention.planifiee:
-        return const Color(0xFF1976D2);
+        return const Color(0xFF1976D2); // Bleu
+      case StatutIntervention.confirmee:
+        return const Color(0xFF43A047); // Vert
       case StatutIntervention.enCours:
-        return const Color(0xFFF57C00);
-      case StatutIntervention.terminee:
-        return const Color(0xFF43A047);
+        return const Color(0xFFFFA000); // Ambre/Orange soutenu
+      case StatutIntervention.reportee:
+        return const Color(0xFFFFCC80); // Orange clair
       case StatutIntervention.annulee:
-        return const Color(0xFF9E9E9E);
+        return const Color(0xFFD32F2F); // Rouge
+      case StatutIntervention.terminee:
+        return const Color(0xFF9E9E9E); // Gris
     }
   }
 }
@@ -371,10 +379,15 @@ class Equipment {
 class Intervention {
   final String interventionId;
   final String clientId;
+  final String? technicianId;
   final Branche branche;
   final TypeIntervention typeIntervention;
   final Periodicite periodicite;
-  final DateTime dateIntervention;
+  final DateTime dateIntervention; // Fallback / Creation date
+  final DateTime scheduledDate;
+  final DateTime? actualDate;
+  final String? startTime;
+  final String? endTime;
   final DateTime? dateProchaine;
   final String technicienNom;
   final StatutIntervention statut;
@@ -384,14 +397,20 @@ class Intervention {
   final bool registreSecurite;
   final String? activiteSite;
   final String? risquesSite;
+  final DateTime? updatedAt;
 
   const Intervention({
     required this.interventionId,
     required this.clientId,
+    this.technicianId,
     required this.branche,
     required this.typeIntervention,
     required this.periodicite,
     required this.dateIntervention,
+    required this.scheduledDate,
+    this.actualDate,
+    this.startTime,
+    this.endTime,
     this.dateProchaine,
     required this.technicienNom,
     required this.statut,
@@ -401,16 +420,22 @@ class Intervention {
     this.registreSecurite = true,
     this.activiteSite,
     this.risquesSite,
+    this.updatedAt,
   });
 
   factory Intervention.fromJson(Map<String, dynamic> json) {
     return Intervention(
       interventionId: json['id'] as String,
       clientId: json['client_id'] as String,
+      technicianId: json['technician_id'] as String?,
       branche: json['branche'] == 'Veriflamme' ? Branche.veriflamme : Branche.sauvdefib,
       typeIntervention: json['type_intervention'] == 'Installation' ? TypeIntervention.installation : TypeIntervention.maintenance,
       periodicite: _periodiciteFromLabel(json['periodicite']),
       dateIntervention: DateTime.parse(json['date_intervention']),
+      scheduledDate: DateTime.parse(json['scheduled_date'] ?? json['date_intervention']),
+      actualDate: json['actual_date'] != null ? DateTime.parse(json['actual_date']) : null,
+      startTime: json['start_time'],
+      endTime: json['end_time'],
       dateProchaine: json['date_prochaine'] != null ? DateTime.parse(json['date_prochaine']) : null,
       technicienNom: json['technicien_nom'],
       statut: _statutInterventionFromLabel(json['statut']),
@@ -420,16 +445,22 @@ class Intervention {
       registreSecurite: json['registre_securite'] ?? true,
       activiteSite: json['activite_site'],
       risquesSite: json['risques_site'],
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'client_id': clientId,
+      'technician_id': technicianId,
       'branche': branche.label,
       'type_intervention': typeIntervention == TypeIntervention.installation ? 'Installation' : 'Maintenance',
       'periodicite': periodicite.label,
       'date_intervention': dateIntervention.toIso8601String(),
+      'scheduled_date': scheduledDate.toIso8601String(),
+      'actual_date': actualDate?.toIso8601String(),
+      'start_time': startTime,
+      'end_time': endTime,
       'date_prochaine': dateProchaine?.toIso8601String(),
       'technicien_nom': technicienNom,
       'statut': statut.label,
@@ -439,16 +470,22 @@ class Intervention {
       'registre_securite': registreSecurite,
       'activite_site': activiteSite,
       'risques_site': risquesSite,
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
   Intervention copyWith({
     String? interventionId,
     String? clientId,
+    String? technicianId,
     Branche? branche,
     TypeIntervention? typeIntervention,
     Periodicite? periodicite,
     DateTime? dateIntervention,
+    DateTime? scheduledDate,
+    DateTime? actualDate,
+    String? startTime,
+    String? endTime,
     DateTime? dateProchaine,
     String? technicienNom,
     StatutIntervention? statut,
@@ -458,14 +495,20 @@ class Intervention {
     bool? registreSecurite,
     String? activiteSite,
     String? risquesSite,
+    DateTime? updatedAt,
   }) {
     return Intervention(
       interventionId: interventionId ?? this.interventionId,
       clientId: clientId ?? this.clientId,
+      technicianId: technicianId ?? this.technicianId,
       branche: branche ?? this.branche,
       typeIntervention: typeIntervention ?? this.typeIntervention,
       periodicite: periodicite ?? this.periodicite,
       dateIntervention: dateIntervention ?? this.dateIntervention,
+      scheduledDate: scheduledDate ?? this.scheduledDate,
+      actualDate: actualDate ?? this.actualDate,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
       dateProchaine: dateProchaine ?? this.dateProchaine,
       technicienNom: technicienNom ?? this.technicienNom,
       statut: statut ?? this.statut,
@@ -475,6 +518,7 @@ class Intervention {
       registreSecurite: registreSecurite ?? this.registreSecurite,
       activiteSite: activiteSite ?? this.activiteSite,
       risquesSite: risquesSite ?? this.risquesSite,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -541,6 +585,7 @@ class Rapport {
   final String? signatureUrl;
   final String? pdfUrl;
   final List<EquipmentMaintenanceLine> equipmentChecks;
+  final DateTime? reportCreatedAt;
 
   const Rapport({
     required this.rapportId,
@@ -556,6 +601,7 @@ class Rapport {
     this.signatureUrl,
     this.pdfUrl,
     this.equipmentChecks = const [],
+    this.reportCreatedAt,
   });
 
   factory Rapport.fromJson(Map<String, dynamic> json) {
@@ -573,6 +619,7 @@ class Rapport {
       signatureUrl: json['signature_url'],
       pdfUrl: json['pdf_url'],
       equipmentChecks: (json['equipment_checks'] as List?)?.map((e) => EquipmentMaintenanceLine.fromJson(e)).toList() ?? [],
+      reportCreatedAt: json['report_created_at'] != null ? DateTime.parse(json['report_created_at']) : null,
     );
   }
 
@@ -590,6 +637,7 @@ class Rapport {
       'signature_url': signatureUrl,
       'pdf_url': pdfUrl,
       'equipment_checks': equipmentChecks.map((e) => e.toJson()).toList(),
+      'report_created_at': reportCreatedAt?.toIso8601String(),
     };
   }
 
@@ -607,6 +655,7 @@ class Rapport {
     String? signatureUrl,
     String? pdfUrl,
     List<EquipmentMaintenanceLine>? equipmentChecks,
+    DateTime? reportCreatedAt,
   }) {
     return Rapport(
       rapportId: rapportId ?? this.rapportId,
@@ -622,7 +671,42 @@ class Rapport {
       signatureUrl: signatureUrl ?? this.signatureUrl,
       pdfUrl: pdfUrl ?? this.pdfUrl,
       equipmentChecks: equipmentChecks ?? this.equipmentChecks,
+      reportCreatedAt: reportCreatedAt ?? this.reportCreatedAt,
     );
+  }
+}
+
+class InterventionPhoto {
+  final String id;
+  final String interventionId;
+  final String url;
+  final String? label;
+  final DateTime createdAt;
+
+  const InterventionPhoto({
+    required this.id,
+    required this.interventionId,
+    required this.url,
+    this.label,
+    required this.createdAt,
+  });
+
+  factory InterventionPhoto.fromJson(Map<String, dynamic> json) {
+    return InterventionPhoto(
+      id: json['id'] as String,
+      interventionId: json['intervention_id'] as String,
+      url: json['url'] as String,
+      label: json['label'] as String?,
+      createdAt: DateTime.parse(json['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'intervention_id': interventionId,
+      'url': url,
+      'label': label,
+    };
   }
 }
 
