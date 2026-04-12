@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -13,6 +14,23 @@ import '../services/supabase_service.dart';
 import '../services/pdf_service.dart';
 import 'report_preview_screen.dart';
 import '../widgets/signature_pad.dart';
+
+class PreVisiteLigne {
+  String description;
+  int quantite;
+  double prixUnitaire;
+  PreVisiteLigne({required this.description, this.quantite = 1, this.prixUnitaire = 0.0});
+  Map<String, dynamic> toJson() => {'description': description, 'quantite': quantite, 'prixUnitaire': prixUnitaire};
+  factory PreVisiteLigne.fromJson(Map<String, dynamic> json) => PreVisiteLigne(description: json['description'], quantite: json['quantite'] ?? 1, prixUnitaire: (json['prixUnitaire'] as num?)?.toDouble() ?? 0.0);
+}
+
+class PreVisiteZone {
+  String nom;
+  List<PreVisiteLigne> lignes;
+  PreVisiteZone({required this.nom, required this.lignes});
+  Map<String, dynamic> toJson() => {'nom': nom, 'lignes': lignes.map((e) => e.toJson()).toList()};
+  factory PreVisiteZone.fromJson(Map<String, dynamic> json) => PreVisiteZone(nom: json['nom'], lignes: (json['lignes'] as List).map((l) => PreVisiteLigne.fromJson(l)).toList());
+}
 
 class NewInterventionScreen extends StatefulWidget {
   const NewInterventionScreen({super.key});
@@ -44,6 +62,14 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   bool _isSaving = false;
   List<Equipment> _allEquipments = []; // Cache for PDF generation
   
+  // Facturation différente
+  bool _facturationDifferente = false;
+  final _factNomController = TextEditingController();
+  final _factAdresseController = TextEditingController();
+  final _factTelController = TextEditingController();
+  final _factEmailController = TextEditingController();
+  final _factContactController = TextEditingController();
+
   // Date & Time planning
   DateTime _scheduledDate = DateTime.now();
   TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
@@ -51,6 +77,9 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   DateTime? _actualDate;
   final List<XFile> _interventionPhotos = [];
   final ImagePicker _picker = ImagePicker();
+
+  // Pré-Visite
+  final List<PreVisiteZone> _arborescence = [];
 
   @override
   void initState() {
@@ -85,6 +114,11 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     _activiteController.dispose();
     _risquesController.dispose();
     _surfaceController.dispose();
+    _factNomController.dispose();
+    _factAdresseController.dispose();
+    _factTelController.dispose();
+    _factEmailController.dispose();
+    _factContactController.dispose();
     super.dispose();
   }
 
@@ -292,24 +326,29 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         const SizedBox(height: 24),
         const Text('Type d\'intervention', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
         const SizedBox(height: 12),
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
           children: [
             _typeOption(TypeIntervention.installation, 'Installation', Icons.add_circle_outline),
-            const SizedBox(width: 12),
             _typeOption(TypeIntervention.maintenance, 'Maintenance', Icons.build_circle_outlined),
+            _typeOption(TypeIntervention.depannage, 'Dépannage', Icons.handyman_outlined),
+            _typeOption(TypeIntervention.preVisite, 'Pré-Visite', Icons.search_outlined),
           ],
         ),
-        const SizedBox(height: 24),
-        const Text('Périodicité', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<Periodicite>(
-          value: _selectedPeriodicite,
-          decoration: const InputDecoration(prefixIcon: Icon(Icons.schedule_rounded)),
-          items: Periodicite.values.map((p) {
-            return DropdownMenuItem(value: p, child: Text(p.label));
-          }).toList(),
-          onChanged: (v) => setState(() => _selectedPeriodicite = v!),
-        ),
+        if (_selectedType != TypeIntervention.installation) ...[
+          const SizedBox(height: 24),
+          const Text('Périodicité', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<Periodicite>(
+            value: _selectedPeriodicite,
+            decoration: const InputDecoration(prefixIcon: Icon(Icons.schedule_rounded)),
+            items: Periodicite.values.map((p) {
+              return DropdownMenuItem(value: p, child: Text(p.label));
+            }).toList(),
+            onChanged: (v) => setState(() => _selectedPeriodicite = v!),
+          ),
+        ],
       ],
     );
   }
@@ -352,12 +391,128 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
 
   Widget _buildRapportStep() {
     if (_selectedClientId == null) return const Center(child: Text('Veuillez sélectionner un client'));
+    final client = _selectedClient!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Planification & Site', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 12),
+
+        // ═══════════════════════════════════════════════
+        // 1. INFORMATIONS GÉNÉRALES (récap auto)
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('1', 'Informations générales', Icons.assignment_rounded),
+        const SizedBox(height: 10),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                _readOnlyInfoRow('Date du rapport', DateFormat('dd/MM/yyyy').format(DateTime.now())),
+                _readOnlyInfoRow('Code client', client.codeClient),
+                _readOnlyInfoRow('N° de rapport', 'Généré automatiquement'),
+                _readOnlyInfoRow('Technicien', _selectedTechnician?.nomComplet ?? '-'),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // ═══════════════════════════════════════════════
+        // 2. LIEU D'INTERVENTION (récap client)
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('2', 'Lieu d\'intervention', Icons.location_on_rounded),
+        const SizedBox(height: 10),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                _readOnlyInfoRow('Nom du client', client.raisonSociale),
+                _readOnlyInfoRow('Adresse', '${client.adresse}, ${client.codePostal} ${client.ville}'),
+                _readOnlyInfoRow('Téléphone', client.contactTel),
+                _readOnlyInfoRow('Email', client.contactEmail),
+                _readOnlyInfoRow('Contact sur place', client.contactNom),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // ═══════════════════════════════════════════════
+        // 3. LIEU DE FACTURATION
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('3', 'Lieu de facturation', Icons.receipt_long_rounded),
+        const SizedBox(height: 10),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Facturation à une adresse différente ?', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: Text(_facturationDifferente ? 'Oui — remplir ci-dessous' : 'Non — même que lieu d\'intervention', style: const TextStyle(fontSize: 12)),
+                  value: _facturationDifferente,
+                  onChanged: (v) => setState(() => _facturationDifferente = v),
+                  activeColor: _selectedBranche.color,
+                ),
+                if (_facturationDifferente) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _factNomController,
+                    decoration: const InputDecoration(labelText: 'Nom du client (facturation)', prefixIcon: Icon(Icons.business_rounded, size: 18)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _factAdresseController,
+                    decoration: const InputDecoration(labelText: 'Adresse de facturation', prefixIcon: Icon(Icons.location_on_outlined, size: 18)),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: TextFormField(
+                      controller: _factTelController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Téléphone', prefixIcon: Icon(Icons.phone_rounded, size: 18)),
+                    )),
+                    const SizedBox(width: 12),
+                    Expanded(child: TextFormField(
+                      controller: _factEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email_rounded, size: 18)),
+                    )),
+                  ]),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _factContactController,
+                    decoration: const InputDecoration(labelText: 'Contact', prefixIcon: Icon(Icons.person_rounded, size: 18)),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 4),
+                  _readOnlyInfoRow('Nom', client.raisonSociale),
+                  _readOnlyInfoRow('Adresse', client.billingAddress ?? '${client.adresse}, ${client.codePostal} ${client.ville}'),
+                  _readOnlyInfoRow('Email', client.billingEmail ?? client.contactEmail),
+                ],
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // ═══════════════════════════════════════════════
+        // 4. INFORMATIONS SUR LE SITE
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('4', 'Informations sur le site', Icons.domain_rounded),
+        const SizedBox(height: 10),
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
@@ -365,99 +520,68 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: InkWell(
-                        onTap: () async {
-                          final d = await showDatePicker(
-                            context: context,
-                            initialDate: _scheduledDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030),
-                          );
-                          if (d != null) setState(() => _scheduledDate = d);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Date d\'intervention', prefixIcon: Icon(Icons.calendar_today_rounded, size: 18)),
-                          child: Text(DateFormat('dd/MM/yyyy').format(_scheduledDate)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () async {
-                          final t = await showTimePicker(context: context, initialTime: _startTime);
-                          if (t != null) setState(() => _startTime = t);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Début', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
-                          child: Text(_startTime.format(context)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () async {
-                          final t = await showTimePicker(context: context, initialTime: _endTime);
-                          if (t != null) setState(() => _endTime = t);
-                        },
-                        child: InputDecorator(
-                          decoration: const InputDecoration(labelText: 'Fin', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
-                          child: Text(_endTime.format(context)),
-                        ),
-                      ),
-                    ),
+                Row(children: [
+                  Expanded(child: TextFormField(
+                    controller: _activiteController,
+                    decoration: const InputDecoration(labelText: 'Activité du site', hintText: 'Ex : bureau, usine…', prefixIcon: Icon(Icons.work_rounded, size: 18)),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextFormField(
+                    controller: _risquesController,
+                    decoration: const InputDecoration(labelText: 'Risques particuliers', hintText: 'Ex : chimique, inflammable…', prefixIcon: Icon(Icons.warning_rounded, size: 18)),
+                  )),
+                ]),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _surfaceController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Surface (m²)', prefixIcon: Icon(Icons.square_foot_rounded, size: 18)),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<bool>(
+                  value: _registreSecurite,
+                  decoration: const InputDecoration(labelText: 'Registre de sécurité', prefixIcon: Icon(Icons.menu_book_rounded, size: 18)),
+                  items: const [
+                    DropdownMenuItem(value: true, child: Text('Présent')),
+                    DropdownMenuItem(value: false, child: Text('Absent')),
                   ],
+                  onChanged: (v) => setState(() => _registreSecurite = v!),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _activiteController,
-                        decoration: const InputDecoration(labelText: 'Activité', prefixIcon: Icon(Icons.work_rounded, size: 18)),
+                Row(children: [
+                  Expanded(
+                    flex: 2,
+                    child: InkWell(
+                      onTap: () async {
+                        final d = await showDatePicker(context: context, initialDate: _scheduledDate, firstDate: DateTime(2020), lastDate: DateTime(2030));
+                        if (d != null) setState(() => _scheduledDate = d);
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(labelText: 'Date d\'intervention', prefixIcon: Icon(Icons.calendar_today_rounded, size: 18)),
+                        child: Text(DateFormat('dd/MM/yyyy').format(_scheduledDate)),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _risquesController,
-                        decoration: const InputDecoration(labelText: 'Risques particuliers', prefixIcon: Icon(Icons.warning_rounded, size: 18)),
-                      ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: InkWell(
+                    onTap: () async { final t = await showTimePicker(context: context, initialTime: _startTime); if (t != null) setState(() => _startTime = t); },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Début', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
+                      child: Text(_startTime.format(context)),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _surfaceController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Surface (m²)', prefixIcon: Icon(Icons.square_foot_rounded, size: 18)),
-                      ),
+                  )),
+                  const SizedBox(width: 12),
+                  Expanded(child: InkWell(
+                    onTap: () async { final t = await showTimePicker(context: context, initialTime: _endTime); if (t != null) setState(() => _endTime = t); },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Fin', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
+                      child: Text(_endTime.format(context)),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: DropdownButtonFormField<bool>(
-                        value: _registreSecurite,
-                        decoration: const InputDecoration(labelText: 'Registre de sécurité', prefixIcon: Icon(Icons.menu_book_rounded, size: 18)),
-                        items: const [
-                          DropdownMenuItem(value: true, child: Text('Présent')),
-                          DropdownMenuItem(value: false, child: Text('Absent')),
-                        ],
-                        onChanged: (v) => setState(() => _registreSecurite = v!),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                  )),
+                ]),
+                const SizedBox(height: 20),
                 const Divider(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 const Text('Photos de l\'intervention', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                 const SizedBox(height: 12),
                 _buildPhotoGrid(),
@@ -465,73 +589,166 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
             ),
           ),
         ),
+
         const SizedBox(height: 24),
-        const Text('Équipements vérifiés', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-        const SizedBox(height: 12),
-        // Real-time equipment list from Supabase
-        StreamBuilder<List<Equipment>>(
-          stream: SupabaseService.instance.equipmentStream(_selectedClientId!),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-            
-            final equipments = snapshot.data!.where((e) => e.branche == _selectedBranche).toList();
-            // Store for PDF generation
-            _allEquipments = equipments;
-            
-            if (equipments.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('Aucun matériel enregistré pour ce client et cette branche.'));
 
-            return Column(
-              children: equipments.map((eq) {
-                final check = _equipmentChecks.firstWhere((c) => c.equipmentId == eq.id, orElse: () => EquipmentMaintenanceLine(equipmentId: eq.id, status: StatutElement.v));
-                final isChecked = _equipmentChecks.any((c) => c.equipmentId == eq.id);
+        // ═══════════════════════════════════════════════
+        // 5. TYPE D'INTERVENTION (récap)
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('5', 'Type d\'intervention', Icons.category_rounded),
+        const SizedBox(height: 10),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: AppTheme.divider)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _checkboxTile('Vérification', _selectedType == TypeIntervention.maintenance),
+                _checkboxTile('Implantation', _selectedType == TypeIntervention.installation),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _selectedBranche.lightColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_selectedBranche.icon, size: 16, color: _selectedBranche.color),
+                      const SizedBox(width: 6),
+                      Text(_selectedBranche.label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: _selectedBranche.color)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: ListTile(
-                    leading: Icon(eq.type == 'Extincteur' ? Icons.fire_extinguisher : Icons.medical_services, color: isChecked ? AppTheme.successGreen : AppTheme.tertiaryText),
-                    title: Text(
-                      '${eq.type} - ${eq.location ?? "Sans emplacement"}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.capacity ?? ""} — ID: ${eq.id.substring(0, 8)}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isChecked && check.localPath != null)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: Image.file(File(check.localPath!), width: 40, height: 40, fit: BoxFit.cover),
-                            ),
-                          ),
-                        if (isChecked)
-                          _statusBadge(check.status)
-                        else
-                          TextButton(
-                            onPressed: () => _showVerificationDialog(eq), 
-                            child: const Text('Vérifier')
-                          ),
-                        if (isChecked)
-                          IconButton(
-                            icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue),
-                            onPressed: () => _showVerificationDialog(eq),
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.add_a_photo_rounded, size: 20),
-                          onPressed: () => _capturePhoto(eq.id),
+        const SizedBox(height: 24),
+
+        // ═══════════════════════════════════════════════
+        // 6. ÉQUIPEMENTS OU PRÉ-VISITE
+        // ═══════════════════════════════════════════════
+        if (_selectedType == TypeIntervention.preVisite)
+          ..._buildArborescenceBuilder()
+        else ...[
+          _rapportSectionHeader('6', 'Extincteurs — Vérification', Icons.fire_extinguisher),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: AppTheme.infoBlueLight, borderRadius: BorderRadius.circular(8)),
+            child: Row(children: [
+              Icon(Icons.info_outline_rounded, color: AppTheme.infoBlue, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'Légende : V Vérifié conforme / NV Non vérifié / MS Mise en service / R Réformé / HS Hors service / P Préconisation',
+                style: TextStyle(color: AppTheme.infoBlue, fontSize: 11, fontWeight: FontWeight.w500),
+              )),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<List<Equipment>>(
+            stream: SupabaseService.instance.equipmentStream(_selectedClientId!),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              final equipments = snapshot.data!.where((e) => e.branche == _selectedBranche).toList();
+              _allEquipments = equipments;
+              if (equipments.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('Aucun matériel enregistré pour ce client et cette branche.'));
+
+              final checkedCount = equipments.where((eq) => _equipmentChecks.any((c) => c.equipmentId == eq.id)).length;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(children: [
+                      Expanded(child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: equipments.isEmpty ? 0 : checkedCount / equipments.length,
+                          backgroundColor: AppTheme.divider,
+                          color: checkedCount == equipments.length ? AppTheme.successGreen : AppTheme.infoBlue,
+                          minHeight: 6,
                         ),
-                      ],
+                      )),
+                      const SizedBox(width: 12),
+                      Text('$checkedCount / ${equipments.length} vérifiés',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                          color: checkedCount == equipments.length ? AppTheme.successGreen : AppTheme.secondaryText)),
+                    ]),
+                  ),
+                  ...equipments.asMap().entries.map((entry) {
+                    final idx = entry.key + 1;
+                    final eq = entry.value;
+                    final check = _equipmentChecks.firstWhere((c) => c.equipmentId == eq.id, orElse: () => EquipmentMaintenanceLine(equipmentId: eq.id, status: StatutElement.v));
+                    final isChecked = _equipmentChecks.any((c) => c.equipmentId == eq.id);
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: isChecked ? AppTheme.successGreen : AppTheme.divider,
+                          foregroundColor: isChecked ? Colors.white : AppTheme.tertiaryText,
+                          child: Text('$idx', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
+                        title: Text(
+                          '${eq.type} ${eq.capacity ?? ""} — ${eq.location ?? "Sans emplacement"}',
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.manufactureYear != null ? "• ${eq.manufactureYear}" : ""}'),
+                        trailing: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (isChecked && check.localPath != null)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.file(File(check.localPath!), width: 36, height: 36, fit: BoxFit.cover)),
+                              ),
+                            if (isChecked)
+                              _statusBadge(check.status)
+                            else
+                              TextButton(onPressed: () => _showVerificationDialog(eq), child: const Text('Vérifier')),
+                            if (isChecked)
+                              IconButton(icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue), onPressed: () => _showVerificationDialog(eq)),
+                            IconButton(icon: const Icon(Icons.add_a_photo_rounded, size: 20), onPressed: () => _capturePhoto(eq.id)),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: OutlinedButton.icon(
+                      onPressed: _showAddEquipmentDialog,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      label: const Text('Ajouter un extincteur'),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: _selectedBranche.color),
+                        foregroundColor: _selectedBranche.color,
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                      ),
                     ),
                   ),
-                );
-              }).toList(),
-            );
-          },
-        ),
-        const SizedBox(height: 20),
-        const Text('Observations & Conformité', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                ],
+              );
+            },
+          ),
+        ],
+
+        const SizedBox(height: 28),
+
+        // ═══════════════════════════════════════════════
+        // 7. CONFORMITÉ & OBSERVATIONS
+        // ═══════════════════════════════════════════════
+        _rapportSectionHeader('7', 'Conformité & Observations', Icons.fact_check_rounded),
         const SizedBox(height: 12),
         DropdownButtonFormField<Conformite>(
           value: _selectedConformite,
@@ -542,14 +759,167 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         const SizedBox(height: 16),
         TextFormField(
           controller: _recommandationsController,
-          decoration: const InputDecoration(
-            labelText: 'Observations et Préconisations',
-            prefixIcon: Icon(Icons.notes_rounded),
-            alignLabelWithHint: true,
-          ),
+          decoration: const InputDecoration(labelText: 'Observations et Préconisations', prefixIcon: Icon(Icons.notes_rounded), alignLabelWithHint: true),
           maxLines: 4,
         ),
+
+        const SizedBox(height: 32),
+
+        // ═══════════════════════════════════════════════
+        // PRÉVISUALISATION
+        // ═══════════════════════════════════════════════
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [_selectedBranche.color.withValues(alpha: 0.05), _selectedBranche.color.withValues(alpha: 0.02)]),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _selectedBranche.color.withValues(alpha: 0.2)),
+          ),
+          child: Column(children: [
+            Icon(Icons.picture_as_pdf_rounded, size: 36, color: _selectedBranche.color),
+            const SizedBox(height: 10),
+            const Text('Prévisualiser le rapport', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 4),
+            Text('Générer un aperçu du rapport sans signature pour montrer au client.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 12), textAlign: TextAlign.center),
+            const SizedBox(height: 14),
+            ElevatedButton.icon(
+              onPressed: () => _openReportPreview(),
+              icon: const Icon(Icons.visibility_rounded, size: 20),
+              label: const Text('Voir la prévisualisation'),
+              style: ElevatedButton.styleFrom(backgroundColor: _selectedBranche.color, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 28)),
+            ),
+          ]),
+        ),
       ],
+    );
+  }
+
+
+
+
+
+
+
+
+
+
+  Widget _rapportSectionHeader(String letter, String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: _selectedBranche.color,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Center(
+            child: Text(letter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Icon(icon, color: _selectedBranche.color, size: 20),
+        const SizedBox(width: 6),
+        Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.primaryText)),
+      ],
+    );
+  }
+
+  Widget _readOnlyInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(label, style: TextStyle(color: AppTheme.secondaryText, fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _checkboxTile(String label, bool isChecked) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isChecked ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+          color: isChecked ? _selectedBranche.color : AppTheme.secondaryText,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: isChecked ? FontWeight.w600 : FontWeight.w400,
+            color: isChecked ? AppTheme.primaryText : AppTheme.secondaryText,
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openReportPreview() {
+    if (_selectedClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez sélectionner un client')),
+      );
+      return;
+    }
+
+    // Build temporary Intervention and Rapport objects for preview
+    final intervention = Intervention(
+      interventionId: 'preview',
+      clientId: _selectedClientId!,
+      technicianId: _selectedTechnician?.id,
+      branche: _selectedBranche,
+      typeIntervention: _selectedType,
+      periodicite: _selectedPeriodicite,
+      dateIntervention: DateTime.now(),
+      scheduledDate: _scheduledDate,
+      actualDate: _scheduledDate,
+      startTime: '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+      endTime: '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+      technicienNom: _selectedTechnician?.nomComplet ?? 'Technicien',
+      statut: StatutIntervention.enCours,
+      surfaceM2: double.tryParse(_surfaceController.text),
+      registreSecurite: _registreSecurite,
+      activiteSite: _activiteController.text,
+      risquesSite: _risquesController.text,
+    );
+
+    final rapport = Rapport(
+      rapportId: 'preview',
+      numeroRapport: 'PREV-${DateFormat('yyyyMMdd').format(DateTime.now())}',
+      interventionId: 'preview',
+      typeRapport: _selectedType,
+      dateCreation: DateTime.now(),
+      conformite: _selectedConformite,
+      emailEnvoye: false,
+      recommandations: _recommandationsController.text,
+      branche: _selectedBranche,
+      equipmentChecks: _equipmentChecks,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReportPreviewScreen(
+          client: _selectedClient!,
+          intervention: intervention,
+          rapport: rapport,
+          equipments: _allEquipments,
+          isPreview: true,
+        ),
+      ),
     );
   }
 
@@ -589,6 +959,8 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       localDetails.putIfAbsent('etat_exterieur', () => 'Bon');
       localDetails.putIfAbsent('plombage', () => 'OK');
       localDetails.putIfAbsent('manometre', () => 'Vert');
+      localDetails.putIfAbsent('controle_quinquennal_effectue', () => 'Non');
+      localDetails.putIfAbsent('controle_decennal_effectue', () => 'Non');
     } else {
       localDetails.putIfAbsent('etat_exterieur', () => 'Bon');
       localDetails.putIfAbsent('voyant_etat', () => 'Vert (OK)');
@@ -622,6 +994,14 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                       _buildDropdown(setDialogState, 'État extérieur', 'etat_exterieur', ['Bon', 'Choc', 'Corrosion'], localDetails),
                       _buildDropdown(setDialogState, 'Plombage/Goupille', 'plombage', ['OK', 'Absent', 'Cassé'], localDetails),
                       _buildDropdown(setDialogState, 'Manomètre', 'manometre', ['Vert', 'Rouge', 'Absent'], localDetails),
+                      const SizedBox(height: 8),
+                      _buildDatePicker(context, setDialogState, 'Date de réépreuve', 'date_reepreuve', localDetails),
+                      _buildDropdown(setDialogState, 'Contrôle quinquennal', 'controle_quinquennal_effectue', ['Oui', 'Non'], localDetails),
+                      if (localDetails['controle_quinquennal_effectue'] == 'Oui')
+                        _buildDatePicker(context, setDialogState, 'Date quinquennal', 'date_quinquennal', localDetails),
+                      _buildDropdown(setDialogState, 'Contrôle décennal', 'controle_decennal_effectue', ['Oui', 'Non'], localDetails),
+                      if (localDetails['controle_decennal_effectue'] == 'Oui')
+                        _buildDatePicker(context, setDialogState, 'Date décennal', 'date_decennal', localDetails),
                     ] else ...[
                       // Medical specific dropdowns
                       _buildDropdown(setDialogState, 'État extérieur', 'etat_exterieur', ['Bon', 'Choc', 'Sale'], localDetails),
@@ -645,6 +1025,15 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
                 ElevatedButton(
                   onPressed: () {
+                    // Validation : Si état = HS ou R -> observation obligatoire
+                    if ((localStatus == StatutElement.hs || localStatus == StatutElement.r) &&
+                        (localDetails['observations'] == null || localDetails['observations'].toString().trim().isEmpty)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Une observation est obligatoire pour l\'état HS ou Réformé.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+
                     Navigator.pop(context, EquipmentMaintenanceLine(
                       equipmentId: eq.id,
                       status: localStatus,
@@ -670,6 +1059,136 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
           _equipmentChecks.add(result);
         }
       });
+    }
+  }
+
+  void _showAddEquipmentDialog() async {
+    final formKey = GlobalKey<FormState>();
+    String qrCode = '';
+    String location = '';
+    String niveau = '';
+    String type = 'Eau';
+    String brand = '';
+    int? manufactureYear;
+
+    final newEq = await showDialog<Equipment>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Ajouter un extincteur', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      decoration: const InputDecoration(labelText: '1. Numéro de l\'extincteur', helperText: 'Ex: EXT-01 ou 12'),
+                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
+                      onSaved: (v) => qrCode = v!.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(labelText: '2. Implantation', helperText: 'Ex: Couloir principal'),
+                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
+                      onSaved: (v) => location = v!.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(labelText: '3. Niveau', helperText: 'Ex: RDC, R+1'),
+                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
+                      onSaved: (v) => niveau = v!.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: type,
+                      decoration: const InputDecoration(labelText: '4. Type d\'extincteur'),
+                      items: ['Eau', 'CO2', 'Poudre', 'Mousse'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                      onChanged: (v) => setDialogState(() => type = v!),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(labelText: '5. Année', helperText: 'Format YYYY'),
+                      keyboardType: TextInputType.number,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Requis';
+                        final year = int.tryParse(v.trim());
+                        if (year == null || year < 1900 || year > 2100) return 'Année invalide';
+                        return null;
+                      },
+                      onSaved: (v) => manufactureYear = int.parse(v!.trim()),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(labelText: '6. Marque', helperText: 'Ex: Sicli, Desautel'),
+                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
+                      onSaved: (v) => brand = v!.trim(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
+              ElevatedButton(
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    formKey.currentState!.save();
+                    Navigator.pop(
+                      context,
+                      Equipment(
+                        id: '', // Will be assigned by Supabase
+                        clientId: _selectedClientId!,
+                        branche: _selectedBranche,
+                        type: type,
+                        brand: brand,
+                        qrCode: qrCode,
+                        location: location,
+                        niveau: niveau,
+                        manufactureYear: manufactureYear,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('AJOUTER'),
+              ),
+            ],
+          );
+        });
+      },
+    );
+
+    if (newEq != null) {
+      setState(() => _isSaving = true);
+      try {
+        await SupabaseService.instance.insertEquipment(newEq);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Extincteur ajouté !', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+          
+          // Ask if they want to add another one
+          final addAnother = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Extincteur ajouté'),
+              content: const Text('Souhaitez-vous ajouter un autre extincteur ?'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NON', style: TextStyle(color: Colors.red))),
+                ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('OUI')),
+              ],
+            ),
+          );
+          
+          if (addAnother == true) {
+             _showAddEquipmentDialog();
+          }
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red));
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
     }
   }
 
@@ -870,6 +1389,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         registreSecurite: _registreSecurite,
         activiteSite: _activiteController.text,
         risquesSite: _risquesController.text,
+        arborescenceJson: _selectedType == TypeIntervention.preVisite ? jsonEncode(_arborescence.map((z) => z.toJson()).toList()) : null,
         updatedAt: DateTime.now(),
       );
       // 1. Insert Intervention
@@ -989,6 +1509,173 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     }
   }
 
+  List<Widget> _buildArborescenceBuilder() {
+    return [
+      _rapportSectionHeader('6', 'Pré-Visite — Parc & Cahier des charges', Icons.account_tree_rounded),
+      const SizedBox(height: 12),
+      if (_arborescence.isEmpty)
+        Container(
+          padding: const EdgeInsets.all(16),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: AppTheme.divider.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(8)),
+          child: const Text('Aucune zone ou bâtiment défini pour le site.', style: TextStyle(color: AppTheme.secondaryText)),
+        ),
+      ..._arborescence.asMap().entries.map((entry) {
+        final zIdx = entry.key;
+        final zone = entry.value;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: const BorderSide(color: AppTheme.divider)),
+          elevation: 0,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(color: AppTheme.divider.withValues(alpha: 0.2), borderRadius: const BorderRadius.vertical(top: Radius.circular(10))),
+                child: Row(
+                  children: [
+                    const Icon(Icons.business_rounded, size: 20, color: AppTheme.primaryLight),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(zone.nom, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                      onPressed: () => setState(() => _arborescence.removeAt(zIdx)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+              if (zone.lignes.isEmpty)
+                const Padding(padding: EdgeInsets.all(12), child: Text('Aucun besoin dans cette zone.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13))),
+              ...zone.lignes.asMap().entries.map((lEntry) {
+                final lIdx = lEntry.key;
+                final ligne = lEntry.value;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: AppTheme.divider, borderRadius: BorderRadius.circular(6)),
+                        child: Text('${ligne.quantite}x', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(ligne.description, style: const TextStyle(fontSize: 14))),
+                      Text('${ligne.prixUnitaire} €', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.infoBlue)),
+                      const SizedBox(width: 12),
+                      InkWell(
+                        onTap: () => setState(() => zone.lignes.removeAt(lIdx)),
+                        child: const Icon(Icons.close, size: 16, color: AppTheme.tertiaryText),
+                      )
+                    ],
+                  ),
+                );
+              }),
+              const Divider(height: 1),
+              TextButton.icon(
+                onPressed: () => _showAddLigneDialog(zone),
+                icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                label: const Text('Ajouter un besoin / équipement'),
+              )
+            ],
+          ),
+        );
+      }),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        onPressed: _showAddZoneDialog,
+        icon: const Icon(Icons.add_location_alt_rounded),
+        label: const Text('Ajouter une Zone (Bâtiment, Étage...)'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48), side: BorderSide(color: _selectedBranche.color), foregroundColor: _selectedBranche.color),
+      ),
+      const SizedBox(height: 16),
+      Container(
+         padding: const EdgeInsets.all(16),
+         decoration: BoxDecoration(color: AppTheme.successGreen.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+         child: Row(
+           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+           children: [
+             const Text('Total estimé HT :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.successGreen)),
+             Text('${_computeArborescenceTotal().toStringAsFixed(2)} €', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.successGreen)),
+           ],
+         ),
+      ),
+    ];
+  }
+
+  double _computeArborescenceTotal() {
+    double total = 0;
+    for (var z in _arborescence) {
+      for (var l in z.lignes) {
+        total += l.quantite * l.prixUnitaire;
+      }
+    }
+    return total;
+  }
+
+  void _showAddZoneDialog() {
+    final ctrl = TextEditingController();
+    showDialog(context: context, builder: (context) {
+      return AlertDialog(
+        title: const Text('Nouvelle zone'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nom (Ex: Bâtiment A - RDC)'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () {
+            if (ctrl.text.trim().isNotEmpty) {
+              setState(() => _arborescence.add(PreVisiteZone(nom: ctrl.text.trim(), lignes: [])));
+              Navigator.pop(context);
+            }
+          }, child: const Text('Ajouter'))
+        ],
+      );
+    });
+  }
+
+  void _showAddLigneDialog(PreVisiteZone zone) {
+    final descCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController(text: '1');
+    final prixCtrl = TextEditingController(text: '0.0');
+    showDialog(context: context, builder: (context) {
+      return AlertDialog(
+        title: const Text('Ajouter un besoin'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description (Ex: Extincteur CO2 2Kg)'), autofocus: true),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: TextField(controller: qtyCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantité'))),
+                  const SizedBox(width: 12),
+                  Expanded(child: TextField(controller: prixCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Prix Unitaire (€)'))),
+                ],
+              )
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () {
+            if (descCtrl.text.trim().isNotEmpty) {
+              final q = int.tryParse(qtyCtrl.text.trim()) ?? 1;
+              final p = double.tryParse(prixCtrl.text.trim().replaceAll(',', '.')) ?? 0.0;
+              setState(() => zone.lignes.add(PreVisiteLigne(description: descCtrl.text.trim(), quantite: q, prixUnitaire: p)));
+              Navigator.pop(context);
+            }
+          }, child: const Text('Ajouter'))
+        ],
+      );
+    });
+  }
+
   Widget _sectionTitle(String title) {
     return Text(
       title,
@@ -1002,36 +1689,46 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
 
   Widget _buildPhotoGrid() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_interventionPhotos.isNotEmpty)
+        if (_interventionPhotos.isNotEmpty) ...[
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1,
             ),
             itemCount: _interventionPhotos.length,
             itemBuilder: (context, index) {
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: kIsWeb 
-                        ? Image.network(_interventionPhotos[index].path, fit: BoxFit.cover)
-                        : Image.file(File(_interventionPhotos[index].path), fit: BoxFit.cover),
+                   Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: kIsWeb 
+                          ? Image.network(_interventionPhotos[index].path, fit: BoxFit.cover)
+                          : Image.file(File(_interventionPhotos[index].path), fit: BoxFit.cover),
+                    ),
                   ),
                   Positioned(
-                    right: 4,
-                    top: 4,
-                    child: GestureDetector(
-                      onTap: () => setState(() => _interventionPhotos.removeAt(index)),
-                      child: Container(
+                    right: -4,
+                    top: -4,
+                    child: IconButton(
+                      onPressed: () => setState(() => _interventionPhotos.removeAt(index)),
+                      icon: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                        child: const Icon(Icons.close, color: Colors.white, size: 16),
+                        decoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4)]),
+                        child: const Icon(Icons.close, color: Colors.white, size: 14),
                       ),
                     ),
                   ),
@@ -1039,22 +1736,57 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
               );
             },
           ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            OutlinedButton.icon(
-              onPressed: () => _pickInterventionPhoto(ImageSource.camera),
-              icon: const Icon(Icons.camera_alt_rounded),
-              label: const Text('Prendre une photo'),
+          const SizedBox(height: 16),
+        ],
+        
+        InkWell(
+          onTap: () {
+            showModalBottomSheet(
+              context: context,
+              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+              builder: (context) => SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Ajouter une photo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 20),
+                      ListTile(
+                        leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), shape: BoxShape.circle), child: const Icon(Icons.camera_alt_rounded, color: Colors.blue)),
+                        title: const Text('Prendre une photo'),
+                        onTap: () { Navigator.pop(context); _pickInterventionPhoto(ImageSource.camera); },
+                      ),
+                      ListTile(
+                        leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.purple.withValues(alpha: 0.1), shape: BoxShape.circle), child: const Icon(Icons.photo_library_rounded, color: Colors.purple)),
+                        title: const Text('Choisir dans la galerie'),
+                        onTap: () { Navigator.pop(context); _pickInterventionPhoto(ImageSource.gallery); },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            decoration: BoxDecoration(
+              color: _selectedBranche.color.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _selectedBranche.color.withValues(alpha: 0.2), width: 1.5),
             ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: () => _pickInterventionPhoto(ImageSource.gallery),
-              icon: const Icon(Icons.photo_library_rounded),
-              label: const Text('Galerie'),
+            child: Column(
+              children: [
+                Icon(Icons.add_a_photo_rounded, size: 36, color: _selectedBranche.color.withValues(alpha: 0.6)),
+                const SizedBox(height: 12),
+                Text('Ajouter des photos', style: TextStyle(color: _selectedBranche.color, fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 4),
+                Text('Touchez ici pour ouvrir l\'appareil photo ou la galerie', style: TextStyle(color: AppTheme.secondaryText, fontSize: 12), textAlign: TextAlign.center),
+              ],
             ),
-          ],
+          ),
         ),
       ],
     );

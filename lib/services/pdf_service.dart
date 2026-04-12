@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -22,6 +23,7 @@ class PdfService {
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
     List<File>? interventionPhotos,
+    bool isPreview = false,
   }) async {
     final pdf = pw.Document();
     final displayDate = intervention.actualDate ?? intervention.scheduledDate;
@@ -29,14 +31,23 @@ class PdfService {
     
     // UI Colors from template
     final headerBlue = PdfColor.fromInt(0xFFB6D0E2);
+    final pdfLightBlue = PdfColor.fromInt(0xFFE8F4F8);
     final primaryColor = PdfColor.fromInt(intervention.branche == Branche.veriflamme ? 0xFFD32F2F : 0xFF2E7D32);
 
     final logo = logoBytes != null ? pw.MemoryImage(logoBytes) : null;
 
+    // Override signatures to null if preview mode
+    if (isPreview) {
+      signatureClient = null;
+      signatureTechnicien = null;
+    }
+
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+        ),
         build: (pw.Context context) {
           return [
             // Header with logo and Title
@@ -173,82 +184,168 @@ class PdfService {
             ),
             pw.SizedBox(height: 15),
 
-            // Type Selection
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.center,
-              children: [
-                _checkbox('Vérification', true),
-                pw.SizedBox(width: 25),
-                _checkbox('Implantation', intervention.typeIntervention == TypeIntervention.installation),
-              ],
-            ),
-            pw.SizedBox(height: 15),
-
-            // 8-Column Technical Table
-            pw.Table(
-              border: pw.TableBorder.all(color: headerBlue, width: 1),
-              columnWidths: {
-                0: const pw.FixedColumnWidth(25),  // N°
-                1: const pw.FlexColumnWidth(2.5), // Implantation
-                2: const pw.FixedColumnWidth(40),  // Niveau
-                3: const pw.FlexColumnWidth(3),   // Type
-                4: const pw.FixedColumnWidth(40),  // Année
-                5: const pw.FlexColumnWidth(2),   // Marque
-                6: const pw.FixedColumnWidth(35),  // État
-                7: const pw.FlexColumnWidth(3.5), // Observation
-              },
-              children: [
-                // Header
-                pw.TableRow(
-                  decoration: pw.BoxDecoration(color: headerBlue),
-                  children: [
-                    _cell('N°', bold: true, fontSize: 8, center: true),
-                    _cell('Implantation', bold: true, fontSize: 8, center: true),
-                    _cell('Niveau', bold: true, fontSize: 8, center: true),
-                    _cell('Type d\'extincteur', bold: true, fontSize: 8, center: true),
-                    _cell('Année', bold: true, fontSize: 8, center: true),
-                    _cell('Marque', bold: true, fontSize: 8, center: true),
-                    _cell('État', bold: true, fontSize: 8, center: true),
-                    _cell('Observation', bold: true, fontSize: 8, center: true),
-                  ],
-                ),
-                // Data
-                ...rapport.equipmentChecks.asMap().entries.map((entry) {
-                  final idx = entry.key + 1;
-                  final check = entry.value;
-                  final eq = equipments.firstWhere(
-                    (e) => e.id == check.equipmentId, 
-                    orElse: () => Equipment(id: '', clientId: '', branche: intervention.branche, type: '-')
-                  );
-                  
-                  return pw.TableRow(
+            if (intervention.typeIntervention == TypeIntervention.preVisite) ...[
+              pw.SizedBox(height: 10),
+              pw.Text('CAHIER DES CHARGES / PRÉ-VISITE', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: headerBlue)),
+              pw.SizedBox(height: 10),
+              ...List<pw.Widget>.from((jsonDecode(intervention.arborescenceJson ?? '[]') as List).map((zone) {
+                final lignes = (zone['lignes'] as List? ?? []);
+                double zoneTotal = 0;
+                for (var l in lignes) {
+                    zoneTotal += ((l['quantite'] as num?) ?? 1) * ((l['prixUnitaire'] as num?) ?? 0.0);
+                }
+                return pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 12),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      _cell('$idx', fontSize: 8, center: true),
-                      _cell(eq.location ?? '-', fontSize: 8),
-                      _cell(eq.niveau ?? '-', fontSize: 8, center: true),
-                      _cell('${eq.type} ${eq.capacity ?? ""}', fontSize: 8),
-                      _cell(eq.manufactureYear?.toString() ?? '-', fontSize: 8, center: true),
-                      _cell(eq.brand ?? '-', fontSize: 8),
-                      _cell(check.status.label, fontSize: 8, center: true),
-                      _cell(check.observations ?? '-', fontSize: 7),
-                    ],
-                  );
-                }),
-              ],
-            ),
-            
-            // Legend
-            pw.SizedBox(height: 5),
-            pw.RichText(
-              text: pw.TextSpan(
-                style: const pw.TextStyle(fontSize: 8),
+                      pw.Container(
+                        padding: const pw.EdgeInsets.all(6),
+                        color: headerBlue,
+                        width: double.infinity,
+                        child: pw.Text('${zone["nom"]}  |  Total estimé: ${zoneTotal.toStringAsFixed(2)} €', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                      ),
+                      if (lignes.isEmpty)
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Aucun équipement défini.', style: const pw.TextStyle(fontSize: 9)))
+                      else
+                        pw.Table(
+                          border: pw.TableBorder.all(color: headerBlue, width: 0.5),
+                          columnWidths: {
+                            0: const pw.FixedColumnWidth(40),
+                            1: const pw.FlexColumnWidth(4),
+                            2: const pw.FixedColumnWidth(60),
+                            3: const pw.FixedColumnWidth(60),
+                          },
+                          children: [
+                            pw.TableRow(
+                              decoration: pw.BoxDecoration(color: pdfLightBlue),
+                              children: [
+                                _cell('Qté', center: true, bold: true),
+                                _cell('Description du besoin', bold: true),
+                                _cell('Prix U. (€)', center: true, bold: true),
+                                _cell('Total (€)', center: true, bold: true),
+                              ]
+                            ),
+                            ...lignes.map((l) {
+                              final qty = (l['quantite'] as num?) ?? 1;
+                              final px = ((l['prixUnitaire'] as num?) ?? 0.0).toDouble();
+                              return pw.TableRow(
+                                children: [
+                                  _cell('$qty', center: true),
+                                  _cell('${l["description"]}'),
+                                  _cell('${px.toStringAsFixed(2)}', center: true),
+                                  _cell('${(qty * px).toStringAsFixed(2)}', center: true),
+                                ]
+                              );
+                            }),
+                          ]
+                        )
+                    ]
+                  )
+                );
+              })),
+            ] else ...[
+              // Type Selection
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
                 children: [
-                  pw.TextSpan(text: 'Légende : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                  pw.TextSpan(text: 'V Vérifié conforme / NV Non vérifié / MS Mise en service / R Réformé à remplacer / HS Hors service / P Préconisation'),
+                  _checkbox('Vérification', intervention.typeIntervention == TypeIntervention.maintenance),
+                  pw.SizedBox(width: 25),
+                  _checkbox('Implantation', intervention.typeIntervention == TypeIntervention.installation),
+                  pw.SizedBox(width: 25),
+                  _checkbox('Dépannage', intervention.typeIntervention == TypeIntervention.depannage),
                 ],
               ),
-            ),
+              pw.SizedBox(height: 15),
+
+              // 8-Column Technical Table
+              pw.Table(
+                border: pw.TableBorder.all(color: headerBlue, width: 1),
+                columnWidths: {
+                  0: const pw.FixedColumnWidth(25),  // N°
+                  1: const pw.FlexColumnWidth(2.5), // Implantation
+                  2: const pw.FixedColumnWidth(40),  // Niveau
+                  3: const pw.FlexColumnWidth(3),   // Type
+                  4: const pw.FixedColumnWidth(40),  // Année
+                  5: const pw.FlexColumnWidth(2),   // Marque
+                  6: const pw.FixedColumnWidth(35),  // État
+                  7: const pw.FlexColumnWidth(3.5), // Observation
+                },
+                children: [
+                  // Header
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: headerBlue),
+                    children: [
+                      _cell('N°', bold: true, fontSize: 8, center: true),
+                      _cell('Implantation', bold: true, fontSize: 8, center: true),
+                      _cell('Niveau', bold: true, fontSize: 8, center: true),
+                      _cell('Type d\'extincteur', bold: true, fontSize: 8, center: true),
+                      _cell('Année', bold: true, fontSize: 8, center: true),
+                      _cell('Marque', bold: true, fontSize: 8, center: true),
+                      _cell('État', bold: true, fontSize: 8, center: true),
+                      _cell('Observation', bold: true, fontSize: 8, center: true),
+                    ],
+                  ),
+                  // Data
+                  ...rapport.equipmentChecks.asMap().entries.map((entry) {
+                    final idx = entry.key + 1;
+                    final check = entry.value;
+                    final eq = equipments.firstWhere(
+                      (e) => e.id == check.equipmentId, 
+                      orElse: () => Equipment(id: '', clientId: '', branche: intervention.branche, type: '-')
+                    );
+                    
+                    return pw.TableRow(
+                      children: [
+                        _cell('$idx', fontSize: 8, center: true),
+                        _cell(eq.location ?? '-', fontSize: 8),
+                        _cell(eq.niveau ?? '-', fontSize: 8, center: true),
+                        _cell('${eq.type} ${eq.capacity ?? ""}', fontSize: 8),
+                        _cell(eq.manufactureYear?.toString() ?? '-', fontSize: 8, center: true),
+                        _cell(eq.brand ?? '-', fontSize: 8),
+                        _cell(check.status.label, fontSize: 8, center: true),
+                        _cell(check.observations ?? '-', fontSize: 7),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              
+              // Legend
+              pw.SizedBox(height: 5),
+              pw.RichText(
+                text: pw.TextSpan(
+                  style: const pw.TextStyle(fontSize: 8),
+                  children: [
+                    pw.TextSpan(text: 'Légende : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.TextSpan(text: 'V Vérifié conforme / NV Non vérifié / MS Mise en service / R Réformé à remplacer / HS Hors service / P Préconisation'),
+                  ],
+                ),
+              ),
+            ],
             pw.SizedBox(height: 25),
+
+            // Preview watermark text banner
+            if (isPreview)
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                margin: const pw.EdgeInsets.only(bottom: 15),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromInt(0xFFFFF3E0),
+                  border: pw.Border.all(color: PdfColor.fromInt(0xFFF57C00), width: 1.5),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                  children: [
+                    pw.Text('⚠ PRÉVISUALISATION — DOCUMENT SANS VALEUR — SIGNATURE À VENIR', 
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFF57C00)),
+                      textAlign: pw.TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
 
             // Footer / Signatures
             pw.Column(
@@ -275,6 +372,18 @@ class PdfService {
                         width: 80,
                         height: 40,
                         child: pw.Image(pw.MemoryImage(signatureTechnicien)),
+                      )
+                    else if (isPreview)
+                      pw.Container(
+                        width: 100,
+                        height: 50,
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        ),
+                        child: pw.Center(
+                          child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
+                        ),
                       ),
                     pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.end,
@@ -286,6 +395,23 @@ class PdfService {
                     ),
                   ],
                 ),
+                // Client signature area for preview
+                if (isPreview) ...[
+                  pw.SizedBox(height: 15),
+                  pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.SizedBox(height: 5),
+                  pw.Container(
+                    width: 150,
+                    height: 50,
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                    ),
+                    child: pw.Center(
+                      child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
+                    ),
+                  ),
+                ],
               ],
             ),
 
@@ -388,6 +514,7 @@ class PdfService {
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
     List<File>? interventionPhotos,
+    bool isPreview = false,
   }) async {
     // Load branch logo
     Uint8List? logoBytes;
@@ -407,10 +534,12 @@ class PdfService {
       signatureClient: signatureClient,
       signatureTechnicien: signatureTechnicien,
       interventionPhotos: interventionPhotos,
+      isPreview: isPreview,
     );
     
     final output = await getTemporaryDirectory();
-    final file = File("${output.path}/rapport_${rapport.numeroRapport}.pdf");
+    final prefix = isPreview ? 'preview_' : 'rapport_';
+    final file = File("${output.path}/${prefix}${rapport.numeroRapport}.pdf");
     await file.writeAsBytes(bytes);
     return file;
   }

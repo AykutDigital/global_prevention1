@@ -6,7 +6,7 @@ enum Branche { veriflamme, sauvdefib }
 
 enum TypeClient { particulier, pme, grandeEntreprise, collectivite }
 
-enum TypeIntervention { installation, maintenance }
+enum TypeIntervention { installation, maintenance, depannage, preVisite }
 
 enum Periodicite { annuelle, quinquennale, decennale, ponctuelle }
 
@@ -123,6 +123,21 @@ extension TypeClientExt on TypeClient {
   }
 }
 
+extension TypeInterventionExt on TypeIntervention {
+  String get label {
+    switch (this) {
+      case TypeIntervention.installation:
+        return 'Installation';
+      case TypeIntervention.maintenance:
+        return 'Maintenance';
+      case TypeIntervention.depannage:
+        return 'Dépannage';
+      case TypeIntervention.preVisite:
+        return 'Pré-Visite';
+    }
+  }
+}
+
 extension PeriodiciteExt on Periodicite {
   String get label {
     switch (this) {
@@ -172,6 +187,10 @@ extension StatutElementExt on StatutElement {
 }
 
 // ─── MODELS ─────────────────────────────────────────────────────────
+
+TypeIntervention _typeInterventionFromLabel(String label) {
+  return TypeIntervention.values.firstWhere((e) => e.label.toLowerCase() == label.toLowerCase(), orElse: () => TypeIntervention.maintenance);
+}
 
 class Client {
   final String clientId;
@@ -397,6 +416,7 @@ class Intervention {
   final bool registreSecurite;
   final String? activiteSite;
   final String? risquesSite;
+  final String? arborescenceJson;
   final DateTime? updatedAt;
 
   const Intervention({
@@ -420,6 +440,7 @@ class Intervention {
     this.registreSecurite = true,
     this.activiteSite,
     this.risquesSite,
+    this.arborescenceJson,
     this.updatedAt,
   });
 
@@ -429,7 +450,7 @@ class Intervention {
       clientId: json['client_id'] as String,
       technicianId: json['technician_id'] as String?,
       branche: json['branche'] == 'Veriflamme' ? Branche.veriflamme : Branche.sauvdefib,
-      typeIntervention: json['type_intervention'] == 'Installation' ? TypeIntervention.installation : TypeIntervention.maintenance,
+      typeIntervention: _typeInterventionFromLabel(json['type_intervention']),
       periodicite: _periodiciteFromLabel(json['periodicite']),
       dateIntervention: DateTime.parse(json['date_intervention']),
       scheduledDate: DateTime.parse(json['scheduled_date'] ?? json['date_intervention']),
@@ -445,6 +466,7 @@ class Intervention {
       registreSecurite: json['registre_securite'] ?? true,
       activiteSite: json['activite_site'],
       risquesSite: json['risques_site'],
+      arborescenceJson: json['arborescence_json'],
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     );
   }
@@ -454,7 +476,7 @@ class Intervention {
       'client_id': clientId,
       'technician_id': technicianId,
       'branche': branche.label,
-      'type_intervention': typeIntervention == TypeIntervention.installation ? 'Installation' : 'Maintenance',
+      'type_intervention': typeIntervention.label,
       'periodicite': periodicite.label,
       'date_intervention': dateIntervention.toIso8601String(),
       'scheduled_date': scheduledDate.toIso8601String(),
