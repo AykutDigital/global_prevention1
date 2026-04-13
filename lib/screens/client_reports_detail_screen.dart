@@ -127,6 +127,19 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
   }
 
   Widget _buildBranchSection(BuildContext context, Branche branche, List<Rapport> rapports) {
+    // Group by TypeIntervention
+    final Map<TypeIntervention, List<Rapport>> groupedByType = {};
+    for (var r in rapports) {
+      if (!groupedByType.containsKey(r.typeRapport)) {
+        groupedByType[r.typeRapport] = [];
+      }
+      groupedByType[r.typeRapport]!.add(r);
+    }
+
+    // Sort the types using their enum index for a consistent order
+    final sortedTypes = groupedByType.keys.toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -143,12 +156,27 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        ...rapports.map((r) {
-          final intervention = widget.allInterventions.firstWhere(
-            (i) => i.interventionId == r.interventionId, 
-            orElse: () => widget.allInterventions.first
+        ...sortedTypes.map((type) {
+          final typeRapports = groupedByType[type]!;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 4.0, bottom: 8.0, top: 4.0),
+                child: Text(
+                  type.label,
+                  style: TextStyle(color: AppTheme.secondaryText, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+              ...typeRapports.map((r) {
+                final intervention = widget.allInterventions.firstWhere(
+                  (i) => i.interventionId == r.interventionId, 
+                  orElse: () => widget.allInterventions.first
+                );
+                return _buildRapportTile(context, r, intervention);
+              }),
+            ],
           );
-          return _buildRapportTile(context, r, intervention);
         }),
       ],
     );
@@ -183,9 +211,13 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
                   children: [
                     Icon(Icons.calendar_today_rounded, size: 12, color: AppTheme.tertiaryText),
                     const SizedBox(width: 4),
-                    Text(
-                      '${_formatDate(rapport.dateCreation)} • ${rapport.typeRapport == TypeIntervention.installation ? "Install." : "Maint."}',
-                      style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
+                    Expanded(
+                      child: Text(
+                        '${_formatDate(rapport.dateCreation)} • ${rapport.typeRapport.label}',
+                        style: TextStyle(color: AppTheme.secondaryText, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),

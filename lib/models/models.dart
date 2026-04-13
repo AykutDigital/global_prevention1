@@ -377,6 +377,15 @@ class Equipment {
   }
 
   Map<String, dynamic> toJson() {
+    // Si 'niveau' est renseigné, on le combine avec 'location' pour ne pas perdre l'information,
+    // car la colonne 'niveau' n'existe peut-être pas (ou n'est pas dans le cache) côté base de données (erreur PGRST204).
+    String? combinedLocation = location;
+    if (niveau != null && niveau!.isNotEmpty) {
+      combinedLocation = location != null && location!.isNotEmpty 
+          ? '$niveau - $location' 
+          : niveau;
+    }
+
     return {
       'client_id': clientId,
       'branche': branche.label,
@@ -386,8 +395,8 @@ class Equipment {
       'capacity': capacity,
       'agent': agent,
       'manufacture_year': manufactureYear,
-      'location': location,
-      'niveau': niveau,
+      'location': combinedLocation,
+      // 'niveau': niveau, // Désactivé temporairement pour éviter le crash Supabase
       'qr_code': qrCode,
       'last_maintenance': lastMaintenance?.toIso8601String(),
       'next_maintenance': nextMaintenance?.toIso8601String(),
@@ -631,7 +640,7 @@ class Rapport {
       rapportId: json['id'] as String,
       numeroRapport: json['numero_rapport'],
       interventionId: json['intervention_id'],
-      typeRapport: json['type_rapport'] == 'Installation' ? TypeIntervention.installation : TypeIntervention.maintenance,
+      typeRapport: _typeInterventionFromLabel(json['type_rapport'] ?? ''),
       dateCreation: DateTime.parse(json['date_creation']),
       conformite: Conformite.values.firstWhere((c) => c.label == json['conformite'], orElse: () => Conformite.conforme),
       emailEnvoye: json['email_envoye'] ?? false,
@@ -649,7 +658,7 @@ class Rapport {
     return {
       'numero_rapport': numeroRapport,
       'intervention_id': interventionId,
-      'type_rapport': typeRapport == TypeIntervention.installation ? 'Installation' : 'Maintenance',
+      'type_rapport': typeRapport.label,
       'date_creation': dateCreation.toIso8601String(),
       'conformite': conformite.label,
       'email_envoye': emailEnvoye,

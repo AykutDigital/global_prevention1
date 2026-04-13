@@ -226,20 +226,32 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       children: [
         _sectionTitle('Client & Intervenant'),
         const SizedBox(height: 16),
-        // Technician selection
-        DropdownButtonFormField<Technician>(
-          value: _selectedTechnician,
-          decoration: const InputDecoration(
-            labelText: 'Technicien intervenant',
-            prefixIcon: Icon(Icons.person_rounded),
+        // Technician selection — only admin can choose another technician
+        if (SupabaseService.instance.currentTechnician?.isAdmin == true)
+          DropdownButtonFormField<Technician>(
+            value: _selectedTechnician,
+            decoration: const InputDecoration(
+              labelText: 'Technicien intervenant',
+              prefixIcon: Icon(Icons.person_rounded),
+            ),
+            items: _technicians.map((t) => DropdownMenuItem(
+              value: t,
+              child: Text(t.nomComplet),
+            )).toList(),
+            onChanged: (v) => setState(() => _selectedTechnician = v),
+            validator: (v) => v == null ? 'Requis' : null,
+          )
+        else
+          InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Technicien intervenant',
+              prefixIcon: Icon(Icons.person_rounded),
+            ),
+            child: Text(
+              _selectedTechnician?.nomComplet ?? 'Non connecté',
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
-          items: _technicians.map((t) => DropdownMenuItem(
-            value: t,
-            child: Text(t.nomComplet),
-          )).toList(),
-          onChanged: (v) => setState(() => _selectedTechnician = v),
-          validator: (v) => v == null ? 'Requis' : null,
-        ),
         const SizedBox(height: 16),
         StreamBuilder<List<Client>>(
           stream: SupabaseService.instance.clientsStream,
@@ -548,34 +560,33 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                   onChanged: (v) => setState(() => _registreSecurite = v!),
                 ),
                 const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                    flex: 2,
-                    child: InkWell(
-                      onTap: () async {
-                        final d = await showDatePicker(context: context, initialDate: _scheduledDate, firstDate: DateTime(2020), lastDate: DateTime(2030));
-                        if (d != null) setState(() => _scheduledDate = d);
-                      },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(labelText: 'Date d\'intervention', prefixIcon: Icon(Icons.calendar_today_rounded, size: 18)),
-                        child: Text(DateFormat('dd/MM/yyyy').format(_scheduledDate)),
-                      ),
-                    ),
+                // Date d'intervention (full width)
+                InkWell(
+                  onTap: () async {
+                    final d = await showDatePicker(context: context, initialDate: _scheduledDate, firstDate: DateTime(2020), lastDate: DateTime(2030));
+                    if (d != null) setState(() => _scheduledDate = d);
+                  },
+                  child: InputDecorator(
+                    decoration: const InputDecoration(labelText: 'Date d\'intervention', prefixIcon: Icon(Icons.calendar_today_rounded, size: 20)),
+                    child: Text(DateFormat('dd/MM/yyyy').format(_scheduledDate), style: const TextStyle(fontSize: 15)),
                   ),
-                  const SizedBox(width: 12),
+                ),
+                const SizedBox(height: 12),
+                // Heure début & fin (side by side, larger)
+                Row(children: [
                   Expanded(child: InkWell(
                     onTap: () async { final t = await showTimePicker(context: context, initialTime: _startTime); if (t != null) setState(() => _startTime = t); },
                     child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Début', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
-                      child: Text(_startTime.format(context)),
+                      decoration: const InputDecoration(labelText: 'Heure de début', prefixIcon: Icon(Icons.access_time_rounded, size: 20)),
+                      child: Text(_startTime.format(context), style: const TextStyle(fontSize: 15)),
                     ),
                   )),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
                   Expanded(child: InkWell(
                     onTap: () async { final t = await showTimePicker(context: context, initialTime: _endTime); if (t != null) setState(() => _endTime = t); },
                     child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Fin', prefixIcon: Icon(Icons.access_time_rounded, size: 18)),
-                      child: Text(_endTime.format(context)),
+                      decoration: const InputDecoration(labelText: 'Heure de fin', prefixIcon: Icon(Icons.access_time_rounded, size: 20)),
+                      child: Text(_endTime.format(context), style: const TextStyle(fontSize: 15)),
                     ),
                   )),
                 ]),
@@ -658,7 +669,31 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
               final equipments = snapshot.data!.where((e) => e.branche == _selectedBranche).toList();
               _allEquipments = equipments;
-              if (equipments.isEmpty) return const Padding(padding: EdgeInsets.all(16), child: Text('Aucun matériel enregistré pour ce client et cette branche.'));
+              if (equipments.isEmpty) return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, size: 48, color: AppTheme.tertiaryText),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Aucun matériel enregistré pour ce client et cette branche.',
+                      style: TextStyle(color: AppTheme.secondaryText, fontSize: 14),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _showAddEquipmentDialog,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      label: const Text('Ajouter un équipement'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _selectedBranche.color,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+                      ),
+                    ),
+                  ],
+                ),
+              );
 
               final checkedCount = equipments.where((eq) => _equipmentChecks.any((c) => c.equipmentId == eq.id)).length;
 
@@ -1064,95 +1099,167 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
 
   void _showAddEquipmentDialog() async {
     final formKey = GlobalKey<FormState>();
-    String qrCode = '';
-    String location = '';
-    String niveau = '';
-    String type = 'Eau';
-    String brand = '';
-    int? manufactureYear;
+    final typeController = TextEditingController();
+    final brandController = TextEditingController();
+    final modelController = TextEditingController();
+    final locationController = TextEditingController();
+    final levelController = TextEditingController();
+    final yearController = TextEditingController();
+    final capacityController = TextEditingController();
+    Branche dialogBranche = _selectedBranche;
+    bool dialogSaving = false;
 
-    final newEq = await showDialog<Equipment>(
+    final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        return StatefulBuilder(builder: (context, setDialogState) {
+        return StatefulBuilder(builder: (dialogContext, setDialogState) {
           return AlertDialog(
-            title: const Text('Ajouter un extincteur', style: TextStyle(fontWeight: FontWeight.bold)),
-            content: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      decoration: const InputDecoration(labelText: '1. Numéro de l\'extincteur', helperText: 'Ex: EXT-01 ou 12'),
-                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
-                      onSaved: (v) => qrCode = v!.trim(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      decoration: const InputDecoration(labelText: '2. Implantation', helperText: 'Ex: Couloir principal'),
-                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
-                      onSaved: (v) => location = v!.trim(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      decoration: const InputDecoration(labelText: '3. Niveau', helperText: 'Ex: RDC, R+1'),
-                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
-                      onSaved: (v) => niveau = v!.trim(),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: type,
-                      decoration: const InputDecoration(labelText: '4. Type d\'extincteur'),
-                      items: ['Eau', 'CO2', 'Poudre', 'Mousse'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                      onChanged: (v) => setDialogState(() => type = v!),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      decoration: const InputDecoration(labelText: '5. Année', helperText: 'Format YYYY'),
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Requis';
-                        final year = int.tryParse(v.trim());
-                        if (year == null || year < 1900 || year > 2100) return 'Année invalide';
-                        return null;
-                      },
-                      onSaved: (v) => manufactureYear = int.parse(v!.trim()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      decoration: const InputDecoration(labelText: '6. Marque', helperText: 'Ex: Sicli, Desautel'),
-                      validator: (v) => v!.trim().isEmpty ? 'Requis' : null,
-                      onSaved: (v) => brand = v!.trim(),
-                    ),
-                  ],
+            title: Row(
+              children: [
+                Icon(Icons.add_circle_rounded, color: dialogBranche.color, size: 24),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Ajouter un équipement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Branche
+                      DropdownButtonFormField<Branche>(
+                        value: dialogBranche,
+                        decoration: const InputDecoration(labelText: 'Branche', prefixIcon: Icon(Icons.business_rounded)),
+                        items: Branche.values.map((b) => DropdownMenuItem(value: b, child: Text(b.label))).toList(),
+                        onChanged: (v) => setDialogState(() => dialogBranche = v!),
+                      ),
+                      const SizedBox(height: 16),
+                      // Type
+                      TextFormField(
+                        controller: typeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Type de matériel',
+                          hintText: 'Ex: Extincteur CO2, Extincteur Eau, DAE…',
+                          prefixIcon: Icon(Icons.category_rounded),
+                        ),
+                        validator: (v) => v == null || v.trim().isEmpty ? 'Champ requis' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      // Niveau + Emplacement
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: levelController,
+                              decoration: const InputDecoration(
+                                labelText: 'Niveau',
+                                hintText: 'Ex: RDC, R+1',
+                                prefixIcon: Icon(Icons.layers_rounded),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: locationController,
+                              decoration: const InputDecoration(
+                                labelText: 'Emplacement',
+                                hintText: 'Ex: Couloir principal',
+                                prefixIcon: Icon(Icons.location_on_rounded),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Marque + Année
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: brandController,
+                              decoration: const InputDecoration(
+                                labelText: 'Marque',
+                                hintText: 'Ex: Sicli, Desautel',
+                                prefixIcon: Icon(Icons.branding_watermark_rounded),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: yearController,
+                              decoration: const InputDecoration(
+                                labelText: 'Année fab.',
+                                hintText: 'Ex: 2023',
+                                prefixIcon: Icon(Icons.calendar_today_rounded),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Capacité / Modèle
+                      TextFormField(
+                        controller: capacityController,
+                        decoration: const InputDecoration(
+                          labelText: 'Capacité / Modèle',
+                          hintText: 'Ex: 6L, 2kg, 6kg ABC…',
+                          prefixIcon: Icon(Icons.straighten_rounded),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
-              ElevatedButton(
-                onPressed: () {
-                  if (formKey.currentState!.validate()) {
-                    formKey.currentState!.save();
-                    Navigator.pop(
-                      context,
-                      Equipment(
-                        id: '', // Will be assigned by Supabase
-                        clientId: _selectedClientId!,
-                        branche: _selectedBranche,
-                        type: type,
-                        brand: brand,
-                        qrCode: qrCode,
-                        location: location,
-                        niveau: niveau,
-                        manufactureYear: manufactureYear,
-                      ),
+              TextButton(
+                onPressed: dialogSaving ? null : () => Navigator.pop(context, false),
+                child: const Text('ANNULER'),
+              ),
+              ElevatedButton.icon(
+                onPressed: dialogSaving ? null : () async {
+                  if (!formKey.currentState!.validate()) return;
+                  setDialogState(() => dialogSaving = true);
+                  try {
+                    final newEq = Equipment(
+                      id: '',
+                      clientId: _selectedClientId!,
+                      branche: dialogBranche,
+                      type: typeController.text.trim(),
+                      brand: brandController.text.trim().isNotEmpty ? brandController.text.trim() : null,
+                      model: modelController.text.trim().isNotEmpty ? modelController.text.trim() : null,
+                      location: locationController.text.trim().isNotEmpty ? locationController.text.trim() : null,
+                      niveau: levelController.text.trim().isNotEmpty ? levelController.text.trim() : null,
+                      manufactureYear: int.tryParse(yearController.text.trim()),
+                      capacity: capacityController.text.trim().isNotEmpty ? capacityController.text.trim() : null,
                     );
+                    await SupabaseService.instance.insertEquipment(newEq);
+                    if (context.mounted) Navigator.pop(context, true);
+                  } catch (e) {
+                    setDialogState(() => dialogSaving = false);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                      );
+                    }
                   }
                 },
-                child: const Text('AJOUTER'),
+                icon: dialogSaving
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.add_rounded),
+                label: Text(dialogSaving ? 'Enregistrement…' : 'AJOUTER'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: dialogBranche.color,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
               ),
             ],
           );
@@ -1160,34 +1267,33 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       },
     );
 
-    if (newEq != null) {
-      setState(() => _isSaving = true);
-      try {
-        await SupabaseService.instance.insertEquipment(newEq);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Extincteur ajouté !', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
-          
-          // Ask if they want to add another one
-          final addAnother = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Extincteur ajouté'),
-              content: const Text('Souhaitez-vous ajouter un autre extincteur ?'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NON', style: TextStyle(color: Colors.red))),
-                ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('OUI')),
-              ],
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Équipement ajouté avec succès !', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Ask if they want to add another one
+      final addAnother = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Équipement ajouté ✓'),
+          content: const Text('Souhaitez-vous ajouter un autre équipement ?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NON')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: _selectedBranche.color, foregroundColor: Colors.white),
+              child: const Text('OUI, AJOUTER'),
             ),
-          );
-          
-          if (addAnother == true) {
-             _showAddEquipmentDialog();
-          }
-        }
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red));
-      } finally {
-        if (mounted) setState(() => _isSaving = false);
+          ],
+        ),
+      );
+
+      if (addAnother == true) {
+        _showAddEquipmentDialog();
       }
     }
   }

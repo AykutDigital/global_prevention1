@@ -7,11 +7,13 @@ class NavItem {
   final IconData icon;
   final String title;
   final String routeName;
+  final int globalIndex;
 
   const NavItem({
     required this.icon,
     required this.title,
     required this.routeName,
+    required this.globalIndex,
   });
 }
 
@@ -31,11 +33,11 @@ class SidebarMenu extends StatelessWidget {
   });
 
   static const List<NavItem> items = [
-    NavItem(icon: Icons.dashboard_rounded, title: 'Tableau de bord', routeName: 'dashboard'),
-    NavItem(icon: Icons.people_rounded, title: 'Clients', routeName: 'clients'),
-    NavItem(icon: Icons.build_circle_rounded, title: 'Interventions', routeName: 'interventions'),
-    NavItem(icon: Icons.description_rounded, title: 'Rapports', routeName: 'reports'),
-    NavItem(icon: Icons.notifications_active_rounded, title: 'Relances', routeName: 'relances'),
+    NavItem(icon: Icons.dashboard_rounded, title: 'Tableau de bord', routeName: 'dashboard', globalIndex: 2),
+    NavItem(icon: Icons.people_rounded, title: 'Clients', routeName: 'clients', globalIndex: 0),
+    NavItem(icon: Icons.build_circle_rounded, title: 'Interventions', routeName: 'interventions', globalIndex: 1),
+    NavItem(icon: Icons.description_rounded, title: 'Rapports', routeName: 'reports', globalIndex: 3),
+    NavItem(icon: Icons.notifications_active_rounded, title: 'Relances', routeName: 'relances', globalIndex: 4),
   ];
 
   @override
@@ -95,6 +97,13 @@ class SidebarMenu extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (isDrawer)
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+                        onPressed: () => Navigator.of(context).pop(),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                   ],
                 ),
               ),
@@ -153,7 +162,7 @@ class SidebarMenu extends StatelessWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final item = items[index];
-                    final isSelected = index == selectedIndex;
+                    final isSelected = item.globalIndex == selectedIndex;
                     final showDivider = index == items.length - 1;
 
                     return Column(
@@ -166,8 +175,10 @@ class SidebarMenu extends StatelessWidget {
                           title: item.title,
                           isSelected: isSelected,
                           onTap: () {
-                            onItemSelected(index);
-                            if (isDrawer) Navigator.pop(context);
+                            if (isDrawer && Navigator.of(context).canPop()) {
+                              Navigator.pop(context);
+                            }
+                            onItemSelected(item.globalIndex);
                           },
                         ),
                       ],

@@ -80,16 +80,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 // Calendar + Events — responsive layout
                                 isMobile
                                     ? Column(children: [
-                                        _buildCalendar(interventions, vfActive, sdActive),
-                                        const SizedBox(height: 16),
                                         _buildEventsList(selectedEvents, vfActive, sdActive),
+                                        const SizedBox(height: 16),
+                                        _buildCalendar(interventions, vfActive, sdActive),
                                       ])
                                     : Row(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Expanded(flex: 2, child: _buildCalendar(interventions, vfActive, sdActive)),
-                                          const SizedBox(width: 20),
                                           Expanded(flex: 1, child: _buildEventsList(selectedEvents, vfActive, sdActive)),
+                                          const SizedBox(width: 20),
+                                          Expanded(flex: 2, child: _buildCalendar(interventions, vfActive, sdActive)),
                                         ],
                                       ),
                                 const SizedBox(height: 28),
@@ -303,7 +303,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    '${event.typeIntervention == TypeIntervention.installation ? "Installation" : "Maintenance"} - ${event.technicienNom}', 
+                    '${event.typeIntervention.label} - ${event.technicienNom}', 
                     style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

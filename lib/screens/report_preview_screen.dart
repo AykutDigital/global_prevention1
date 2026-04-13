@@ -94,14 +94,17 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 color: Color(0xFFFFF3E0),
                 border: Border(bottom: BorderSide(color: Color(0xFFF57C00), width: 2)),
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Row(
                 children: [
-                  Icon(Icons.visibility_rounded, color: Color(0xFFF57C00), size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'PRÉVISUALISATION — Ce document n\'a aucune valeur sans signature',
-                    style: TextStyle(color: Color(0xFFF57C00), fontWeight: FontWeight.w600, fontSize: 13),
+                  const Icon(Icons.visibility_rounded, color: Color(0xFFF57C00), size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'PRÉVISUALISATION — Ce document n\'a aucune valeur sans signature',
+                      style: const TextStyle(color: Color(0xFFF57C00), fontWeight: FontWeight.w600, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
                   ),
                 ],
               ),
