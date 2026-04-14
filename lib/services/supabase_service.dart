@@ -384,11 +384,12 @@ class SupabaseService {
     }
   }
 
-  Future<String> getNextReportNumber(Branche branche) async {
+  Future<String> getNextReportNumber(Branche branche, {DateTime? date}) async {
     final prefix = branche == Branche.veriflamme ? 'VF' : 'SD';
-    final dateStr = DateTime.now().year.toString() + 
-                    DateTime.now().month.toString().padLeft(2, '0') + 
-                    DateTime.now().day.toString().padLeft(2, '0');
+    final d = date ?? DateTime.now();
+    final dateStr = d.year.toString() +
+                    d.month.toString().padLeft(2, '0') +
+                    d.day.toString().padLeft(2, '0');
     
     final pattern = '$prefix$dateStr-';
 

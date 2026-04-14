@@ -159,8 +159,10 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                 child: Row(
                   children: [
                     ElevatedButton(
-                      onPressed: details.onStepContinue,
-                      child: Text(_currentStep == 4 ? 'Terminer' : 'Continuer'),
+                      onPressed: _isSaving ? null : details.onStepContinue,
+                      child: _isSaving && _currentStep == 4
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Text(_currentStep == 4 ? 'Terminer' : 'Continuer'),
                     ),
                     if (_currentStep > 0) ...[
                       const SizedBox(width: 12),
@@ -1514,7 +1516,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         branche: _selectedBranche,
         typeIntervention: _selectedType,
         periodicite: _selectedPeriodicite,
-        dateIntervention: DateTime.now(),
+        dateIntervention: _scheduledDate,
         scheduledDate: _scheduledDate,
         actualDate: _actualDate ?? _scheduledDate,
         startTime: '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
@@ -1543,7 +1545,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       print('Étape 3: Génération du PDF...');
       
       // Generate standard report number
-      final reportNumber = await SupabaseService.instance.getNextReportNumber(_selectedBranche);
+      final reportNumber = await SupabaseService.instance.getNextReportNumber(_selectedBranche, date: _scheduledDate);
 
       final rapport = Rapport(
         rapportId: '',
