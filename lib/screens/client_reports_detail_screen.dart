@@ -52,6 +52,29 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
     });
   }
 
+  Future<void> _confirmDelete(BuildContext context, Rapport rapport) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer le rapport'),
+        content: Text('Supprimer le rapport ${rapport.numeroRapport} ? Cette action est irréversible.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await SupabaseService.instance.deleteRapport(rapport.rapportId);
+    setState(() {
+      _vfRapports.removeWhere((r) => r.rapportId == rapport.rapportId);
+      _sdRapports.removeWhere((r) => r.rapportId == rapport.rapportId);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -234,6 +257,11 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
               rapport: rapport,
             ))),
           ),
+          if (SupabaseService.instance.currentTechnician?.isAdmin == true)
+            IconButton(
+              icon: const Icon(Icons.delete_rounded, color: Colors.red, size: 22),
+              onPressed: () => _confirmDelete(context, rapport),
+            ),
         ],
       ),
     );
