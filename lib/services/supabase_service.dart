@@ -238,6 +238,10 @@ class SupabaseService {
     await _client.from('rapports').insert(rapport.toJson());
   }
 
+  Future<void> deleteRapport(String rapportId) async {
+    await _client.from('rapports').delete().eq('id', rapportId);
+  }
+
   // ─── RELANCES ───────────────────────────────────────────────────────
 
   Stream<List<Relance>> get relancesStream {
