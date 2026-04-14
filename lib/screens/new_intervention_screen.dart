@@ -187,7 +187,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
               // Step 2: Branche & Type
               Step(
                 title: const Text('Type'),
-                subtitle: Text('${_selectedBranche.label} — ${_selectedType == TypeIntervention.installation ? "Installation" : "Maintenance"}'),
+                subtitle: Text('${_selectedBranche.label} — ${_selectedType == TypeIntervention.installation ? "Installation" : "Maintenance"}', maxLines: 1, overflow: TextOverflow.ellipsis),
                 isActive: _currentStep >= 1,
                 state: _currentStep > 1 ? StepState.complete : StepState.indexed,
                 content: _buildTypeStep(),
@@ -738,7 +738,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                           maxLines: 1, overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                         ),
-                        subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.manufactureYear != null ? "• ${eq.manufactureYear}" : ""}'),
+                        subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.manufactureYear != null ? "• ${eq.manufactureYear}" : ""}', maxLines: 1, overflow: TextOverflow.ellipsis),
                         trailing: Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
@@ -856,7 +856,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         const SizedBox(width: 10),
         Icon(icon, color: _selectedBranche.color, size: 20),
         const SizedBox(width: 6),
-        Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.primaryText)),
+        Expanded(child: Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.primaryText), maxLines: 1, overflow: TextOverflow.ellipsis)),
       ],
     );
   }

@@ -131,7 +131,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                               children: [
                                 const SizedBox(height: 4),
                                 Text(tech.email, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                if (tech.telephone != null) Text(tech.telephone!),
+                                if (tech.telephone != null) Text(tech.telephone!, maxLines: 1, overflow: TextOverflow.ellipsis),
                               ],
                             ),
                             trailing: IconButton(

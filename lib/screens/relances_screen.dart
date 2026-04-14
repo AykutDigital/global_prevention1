@@ -185,7 +185,9 @@ class _RelancesScreenState extends State<RelancesScreen> {
               Text(clientName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               const SizedBox(height: 2),
               Text('${r.typeMaintenance.label} • Éch. ${_fmt(r.dateEcheance)} • ${r.nbRelancesEnvoyees} envoi(s)',
-                style: TextStyle(color: AppTheme.secondaryText, fontSize: 12)),
+                style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
             ])),
             _urgencyBadge(j),
             if (!isMobile) ...[

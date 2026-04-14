@@ -567,8 +567,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                     size: 20
                   ),
                 ),
-                title: Text('${e.type} ${e.brand ?? ""}'),
-                subtitle: Text('Niveau: ${e.niveau ?? "RDC"} • Emplacement: ${e.location ?? "Non spécifié"}'),
+                title: Text('${e.type} ${e.brand ?? ""}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('Niveau: ${e.niveau ?? "RDC"} • Emplacement: ${e.location ?? "Non spécifié"}', maxLines: 1, overflow: TextOverflow.ellipsis),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
               ),
