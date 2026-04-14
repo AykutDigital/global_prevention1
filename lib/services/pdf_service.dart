@@ -395,22 +395,29 @@ class PdfService {
                     ),
                   ],
                 ),
-                // Client signature area for preview
-                if (isPreview) ...[
+                // Client signature area
+                ...[
                   pw.SizedBox(height: 15),
                   pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                   pw.SizedBox(height: 5),
-                  pw.Container(
-                    width: 150,
-                    height: 50,
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  if (signatureClient != null)
+                    pw.Container(
+                      width: 150,
+                      height: 50,
+                      child: pw.Image(pw.MemoryImage(signatureClient!)),
+                    )
+                  else if (isPreview)
+                    pw.Container(
+                      width: 150,
+                      height: 50,
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                      ),
+                      child: pw.Center(
+                        child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
+                      ),
                     ),
-                    child: pw.Center(
-                      child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
-                    ),
-                  ),
                 ],
               ],
             ),

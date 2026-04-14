@@ -377,15 +377,6 @@ class Equipment {
   }
 
   Map<String, dynamic> toJson() {
-    // Si 'niveau' est renseigné, on le combine avec 'location' pour ne pas perdre l'information,
-    // car la colonne 'niveau' n'existe peut-être pas (ou n'est pas dans le cache) côté base de données (erreur PGRST204).
-    String? combinedLocation = location;
-    if (niveau != null && niveau!.isNotEmpty) {
-      combinedLocation = location != null && location!.isNotEmpty 
-          ? '$niveau - $location' 
-          : niveau;
-    }
-
     return {
       'client_id': clientId,
       'branche': branche.label,
@@ -395,8 +386,8 @@ class Equipment {
       'capacity': capacity,
       'agent': agent,
       'manufacture_year': manufactureYear,
-      'location': combinedLocation,
-      // 'niveau': niveau, // Désactivé temporairement pour éviter le crash Supabase
+      'location': location,
+      'niveau': niveau,
       'qr_code': qrCode,
       'last_maintenance': lastMaintenance?.toIso8601String(),
       'next_maintenance': nextMaintenance?.toIso8601String(),
