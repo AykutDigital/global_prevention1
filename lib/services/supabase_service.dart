@@ -323,6 +323,10 @@ class SupabaseService {
     await _client.from('rapports').delete().eq('id', rapportId);
   }
 
+  Future<void> deleteIntervention(String interventionId) async {
+    await _client.from('interventions').delete().eq('id', interventionId);
+  }
+
   // ─── RELANCES ───────────────────────────────────────────────────────
 
   Stream<List<Relance>> get relancesStream {

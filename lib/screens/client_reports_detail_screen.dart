@@ -69,6 +69,9 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
     );
     if (confirmed != true) return;
     await SupabaseService.instance.deleteRapport(rapport.rapportId);
+    if (rapport.interventionId.isNotEmpty) {
+      await SupabaseService.instance.deleteIntervention(rapport.interventionId);
+    }
     setState(() {
       _vfRapports.removeWhere((r) => r.rapportId == rapport.rapportId);
       _sdRapports.removeWhere((r) => r.rapportId == rapport.rapportId);
