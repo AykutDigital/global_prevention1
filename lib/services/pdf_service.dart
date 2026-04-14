@@ -384,10 +384,33 @@ class PdfService {
                   ],
                 ),
 
-                // Signature technicien (droite)
+                // Droite : infos société EN HAUT + signature technicien EN BAS
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
+                    // Bloc adresse société (en haut à droite)
+                    pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.grey300),
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
+                            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                          ),
+                          pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                    ),
+                    pw.SizedBox(height: 10),
+                    // Signature technicien (en bas à droite)
                     pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                     pw.SizedBox(height: 8),
                     if (signatureTechnicien != null)
@@ -417,36 +440,21 @@ class PdfService {
 
             pw.SizedBox(height: 15),
 
-            // Barre de pied de page : infos société (gauche) + logo vertical (droite)
+            // Logo vertical en bas à droite (sens correct : +pi/2)
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-                    ),
-                    pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-                // Logo vertical (pivoté 90° sens anti-horaire)
                 if (logo != null)
                   pw.Transform.rotate(
-                    angle: -pi / 2,
+                    angle: pi / 2,
                     child: pw.Container(width: 80, child: pw.Image(logo)),
                   ),
               ],
             ),
 
-            // Photos Section
+            // Photos : toujours sur la page 2
             if (interventionPhotos != null && interventionPhotos.isNotEmpty) ...[
-              pw.SizedBox(height: 30),
+              pw.NewPage(),
               pw.Text('PHOTOS DE L\'INTERVENTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12, color: primaryColor)),
               pw.SizedBox(height: 10),
               pw.Wrap(
@@ -454,7 +462,7 @@ class PdfService {
                 runSpacing: 10,
                 children: interventionPhotos.map((file) {
                   return pw.Container(
-                    width: 240, // Reduced to fit 2 photos clearly
+                    width: 240,
                     height: 180,
                     decoration: pw.BoxDecoration(
                       border: pw.Border.all(color: PdfColors.grey300),
