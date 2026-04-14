@@ -352,7 +352,47 @@ class PdfService {
                 ),
               ),
 
-            // Footer / Signatures côte à côte
+            // Ligne 1 : Logo vertical (gauche) + Carré adresse (droite)
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                // Logo Veriflamme vertical à gauche du carré
+                if (logo != null)
+                  pw.Transform.rotate(
+                    angle: pi / 2,
+                    child: pw.Container(width: 70, child: pw.Image(logo)),
+                  )
+                else
+                  pw.SizedBox(width: 70),
+
+                // Carré adresse société à droite
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                      ),
+                      pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            pw.SizedBox(height: 14),
+
+            // Ligne 2 : Signatures client (gauche) et technicien (droite) alignées
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -384,33 +424,10 @@ class PdfService {
                   ],
                 ),
 
-                // Droite : infos société EN HAUT + signature technicien EN BAS
+                // Signature technicien (droite)
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
-                    // Bloc adresse société (en haut à droite)
-                    pw.Container(
-                      padding: const pw.EdgeInsets.all(8),
-                      decoration: pw.BoxDecoration(
-                        border: pw.Border.all(color: PdfColors.grey300),
-                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                      ),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
-                            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
-                          ),
-                          pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                          pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
-                          pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                          pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
-                        ],
-                      ),
-                    ),
-                    pw.SizedBox(height: 10),
-                    // Signature technicien (en bas à droite)
                     pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                     pw.SizedBox(height: 8),
                     if (signatureTechnicien != null)
@@ -435,20 +452,6 @@ class PdfService {
                     pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
                   ],
                 ),
-              ],
-            ),
-
-            pw.SizedBox(height: 15),
-
-            // Logo vertical en bas à droite (sens correct : +pi/2)
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
-              children: [
-                if (logo != null)
-                  pw.Transform.rotate(
-                    angle: pi / 2,
-                    child: pw.Container(width: 80, child: pw.Image(logo)),
-                  ),
               ],
             ),
 
