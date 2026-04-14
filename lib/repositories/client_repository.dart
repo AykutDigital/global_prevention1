@@ -33,9 +33,20 @@ class ClientRepository {
         'local_clients',
         where: "sync_status != ?",
         whereArgs: ['pending_delete'],
-        orderBy: "raison_sociale ASC",
+        orderBy: "updated_at DESC",
       );
-      final clients = maps.map((map) => Client.fromJson(map)).toList();
+      final allClients = maps.map((map) => Client.fromJson(map)).toList();
+
+      // Déduplique par codeClient en gardant le plus récemment mis à jour
+      final Map<String, Client> unique = {};
+      for (final c in allClients) {
+        if (!unique.containsKey(c.codeClient)) {
+          unique[c.codeClient] = c;
+        }
+      }
+      final clients = unique.values.toList()
+        ..sort((a, b) => a.raisonSociale.compareTo(b.raisonSociale));
+
       _lastClients = clients;
       return clients;
     } catch (e) {
