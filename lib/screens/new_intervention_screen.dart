@@ -1042,8 +1042,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                     // Status
                     DropdownButtonFormField<StatutElement>(
                       value: localStatus,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'État (selon légende)'),
-                      items: StatutElement.values.map((s) => DropdownMenuItem(value: s, child: Text('${s.label} - ${s.fullLabel}'))).toList(),
+                      items: StatutElement.values.map((s) => DropdownMenuItem(
+                        value: s,
+                        child: Text('${s.label} - ${s.fullLabel}', overflow: TextOverflow.ellipsis),
+                      )).toList(),
                       onChanged: (v) => setDialogState(() => localStatus = v!),
                     ),
                     const SizedBox(height: 16),
