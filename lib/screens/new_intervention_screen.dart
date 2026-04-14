@@ -733,27 +733,49 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                           foregroundColor: isChecked ? Colors.white : AppTheme.tertiaryText,
                           child: Text('$idx', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                         ),
-                        title: Text(
-                          '${eq.type} ${eq.capacity ?? ""} — ${eq.location ?? "Sans emplacement"}',
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${eq.type} ${eq.capacity ?? ""} — ${eq.location ?? "Sans emplacement"}',
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (isChecked && check.localPath != null)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 4),
+                                child: Icon(Icons.photo_camera, size: 14, color: AppTheme.infoBlue),
+                              ),
+                          ],
                         ),
                         subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.manufactureYear != null ? "• ${eq.manufactureYear}" : ""}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (isChecked && check.localPath != null)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.file(File(check.localPath!), width: 36, height: 36, fit: BoxFit.cover)),
+                            if (isChecked) ...[
+                              _statusBadge(check.status),
+                              const SizedBox(width: 2),
+                              IconButton(
+                                icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue, size: 20),
+                                onPressed: () => _showVerificationDialog(eq),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                visualDensity: VisualDensity.compact,
                               ),
-                            if (isChecked)
-                              _statusBadge(check.status)
-                            else
-                              TextButton(onPressed: () => _showVerificationDialog(eq), child: const Text('Vérifier')),
-                            if (isChecked)
-                              IconButton(icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue), onPressed: () => _showVerificationDialog(eq)),
-                            IconButton(icon: const Icon(Icons.add_a_photo_rounded, size: 20), onPressed: () => _capturePhoto(eq.id)),
+                            ] else
+                              TextButton(
+                                onPressed: () => _showVerificationDialog(eq),
+                                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                                child: const Text('Vérifier', style: TextStyle(fontSize: 13)),
+                              ),
+                            IconButton(
+                              icon: const Icon(Icons.add_a_photo_rounded, size: 18),
+                              onPressed: () => _capturePhoto(eq.id),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              visualDensity: VisualDensity.compact,
+                            ),
                           ],
                         ),
                       ),

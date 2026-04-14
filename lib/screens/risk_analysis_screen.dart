@@ -87,24 +87,26 @@ class _RiskAnalysisScreenState extends State<RiskAnalysisScreen> {
                   children: [
                     const Text('Branche : ', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(width: 12),
-                    SegmentedButton<Branche>(
-                      segments: [
-                        ButtonSegment(
-                          value: Branche.veriflamme,
-                          icon: Icon(Icons.local_fire_department, size: 16),
-                          label: const Text('Veriflamme'),
-                        ),
-                        ButtonSegment(
-                          value: Branche.sauvdefib,
-                          icon: Icon(Icons.medical_services, size: 16),
-                          label: const Text('Sauvdefib'),
-                        ),
-                      ],
-                      selected: {_branche},
-                      onSelectionChanged: (v) => setState(() {
-                        _branche = v.first;
-                        _answers.clear();
-                      }),
+                    Flexible(
+                      child: SegmentedButton<Branche>(
+                        segments: [
+                          ButtonSegment(
+                            value: Branche.veriflamme,
+                            icon: Icon(Icons.local_fire_department, size: 16),
+                            label: const Text('Veriflamme'),
+                          ),
+                          ButtonSegment(
+                            value: Branche.sauvdefib,
+                            icon: Icon(Icons.medical_services, size: 16),
+                            label: const Text('Sauvdefib'),
+                          ),
+                        ],
+                        selected: {_branche},
+                        onSelectionChanged: (v) => setState(() {
+                          _branche = v.first;
+                          _answers.clear();
+                        }),
+                      ),
                     ),
                   ],
                 ),
