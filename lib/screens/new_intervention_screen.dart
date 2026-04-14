@@ -996,6 +996,10 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       localDetails.putIfAbsent('manometre', () => 'Vert');
       localDetails.putIfAbsent('controle_quinquennal_effectue', () => 'Non');
       localDetails.putIfAbsent('controle_decennal_effectue', () => 'Non');
+      localDetails.putIfAbsent('date_reepreuve', () {
+        final d = DateTime.now();
+        return DateTime(d.year + 1, d.month, d.day).toIso8601String();
+      });
     } else {
       localDetails.putIfAbsent('etat_exterieur', () => 'Bon');
       localDetails.putIfAbsent('voyant_etat', () => 'Vert (OK)');

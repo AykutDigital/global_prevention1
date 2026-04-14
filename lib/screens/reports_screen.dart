@@ -6,6 +6,7 @@ import '../widgets/responsive_layout.dart';
 import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
 import '../services/pdf_service.dart';
+import '../repositories/client_repository.dart';
 import 'report_preview_screen.dart';
 import 'client_reports_detail_screen.dart';
 
@@ -94,15 +95,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
             valueListenable: AppContextService.instance.isSauvdefibActive,
             builder: (context, sdActive, _) {
               return StreamBuilder<List<Client>>(
-                stream: SupabaseService.instance.clientsStream,
+                stream: ClientRepository.instance.clientsStream,
                 builder: (context, clientSnapshot) {
                   return StreamBuilder<List<Intervention>>(
                     stream: SupabaseService.instance.interventionsStream,
+                    initialData: const [],
                     builder: (context, interventionSnapshot) {
                       return StreamBuilder<List<Rapport>>(
                         stream: SupabaseService.instance.rapportsStream,
+                        initialData: const [],
                         builder: (context, rapportSnapshot) {
-                          if (rapportSnapshot.connectionState == ConnectionState.waiting) {
+                          if (!clientSnapshot.hasData && clientSnapshot.connectionState == ConnectionState.waiting) {
                             return const Center(child: CircularProgressIndicator());
                           }
                           

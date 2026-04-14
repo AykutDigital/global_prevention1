@@ -222,6 +222,8 @@ class Client {
   final int paymentTerms; // Days
   final String? activite;
   final String? risquesParticuliers;
+  final String syncStatus;
+  final DateTime? updatedAt;
 
   const Client({
     required this.clientId,
@@ -251,26 +253,29 @@ class Client {
     this.paymentTerms = 30,
     this.activite,
     this.risquesParticuliers,
+    this.syncStatus = 'synced',
+    this.updatedAt,
   });
 
   factory Client.fromJson(Map<String, dynamic> json) {
     return Client(
-      clientId: json['id'] as String? ?? json['clientId'] as String,
-      codeClient: json['code_client'] ?? json['codeClient'] as String,
-      raisonSociale: json['raison_sociale'] ?? json['raisonSociale'] as String,
-      typeClient: _typeClientFromLabel(json['type_client'] ?? json['typeClient'] as String),
-      adresse: json['adresse'] ?? json['adresse'] as String,
-      codePostal: json['code_postal'] ?? json['codePostal'] as String,
-      ville: json['ville'] ?? json['ville'] as String,
-      contactNom: json['contact_nom'] ?? json['contactNom'] as String,
-      contactTel: json['contact_tel'] ?? json['contactTel'] as String,
-      contactEmail: json['contact_email'] ?? json['contactEmail'] as String,
-      contactPosition: json['contact_position'] ?? json['contactPosition'] as String?,
-      isVeriflamme: json['is_veriflamme'] ?? json['isVeriflamme'] ?? false,
-      isSauvdefib: json['is_sauvdefib'] ?? json['isSauvdefib'] ?? false,
-      noteInterne: json['note_interne'] ?? json['noteInterne'] as String?,
-      dateCreation: DateTime.parse(json['date_creation'] ?? json['dateCreation'] as String),
-      actif: json['actif'] ?? json['actif'] ?? true,
+      clientId: json['id'] as String? ?? json['clientId'] as String? ?? '',
+      codeClient: json['code_client'] as String? ?? json['codeClient'] as String? ?? '',
+      raisonSociale: json['raison_sociale'] as String? ?? json['raisonSociale'] as String? ?? '',
+      typeClient: _typeClientFromLabel(json['type_client'] as String? ?? json['typeClient'] as String? ?? ''),
+      adresse: json['adresse'] as String? ?? json['adresse'] as String? ?? '',
+      codePostal: json['code_postal'] as String? ?? json['codePostal'] as String? ?? '',
+      ville: json['ville'] as String? ?? json['ville'] as String? ?? '',
+      contactNom: json['contact_nom'] as String? ?? json['contactNom'] as String? ?? '',
+      contactTel: json['contact_tel'] as String? ?? json['contactTel'] as String? ?? '',
+      contactEmail: json['contact_email'] as String? ?? json['contactEmail'] as String? ?? '',
+      contactPosition: json['contact_position'] as String? ?? json['contactPosition'] as String?,
+      isVeriflamme: _parseBool(json['is_veriflamme'] ?? json['isVeriflamme'], defaultValue: false),
+      isSauvdefib: _parseBool(json['is_sauvdefib'] ?? json['isSauvdefib'], defaultValue: false),
+      noteInterne: json['note_interne'] as String? ?? json['noteInterne'] as String?,
+      dateCreation: json['date_creation'] != null ? DateTime.parse(json['date_creation'] as String) 
+                    : (json['dateCreation'] != null ? DateTime.parse(json['dateCreation'] as String) : DateTime.now()),
+      actif: _parseBool(json['actif'], defaultValue: true),
       siret: json['siret'] as String?,
       codeNaf: json['code_naf'] as String?,
       tvaIntra: json['tva_intra'] as String?,
@@ -282,6 +287,8 @@ class Client {
       paymentTerms: json['payment_terms'] as int? ?? 30,
       activite: json['activite'] as String?,
       risquesParticuliers: json['risques_particuliers'] as String?,
+      syncStatus: json['sync_status'] as String? ?? 'synced',
+      updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at'] as String) : null,
     );
   }
 
@@ -311,6 +318,8 @@ class Client {
       'payment_terms': paymentTerms,
       'activite': activite,
       'risques_particuliers': risquesParticuliers,
+      'sync_status': syncStatus,
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
@@ -321,6 +330,14 @@ class Client {
       case 'Collectivité': return TypeClient.collectivite;
       default: return TypeClient.pme;
     }
+  }
+
+  static bool _parseBool(dynamic value, {bool defaultValue = false}) {
+    if (value == null) return defaultValue;
+    if (value is bool) return value;
+    if (value is int) return value == 1;
+    if (value is String) return value.toLowerCase() == 'true' || value == '1';
+    return defaultValue;
   }
 }
 

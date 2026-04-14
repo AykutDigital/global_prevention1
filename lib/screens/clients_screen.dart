@@ -7,6 +7,7 @@ import 'client_detail_screen.dart';
 import 'client_form_screen.dart';
 import '../services/supabase_service.dart';
 import '../services/app_context_service.dart';
+import '../repositories/client_repository.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
@@ -65,7 +66,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
             valueListenable: AppContextService.instance.isSauvdefibActive,
             builder: (context, sdActive, _) {
               return StreamBuilder<List<Client>>(
-                stream: SupabaseService.instance.clientsStream,
+                stream: ClientRepository.instance.clientsStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());

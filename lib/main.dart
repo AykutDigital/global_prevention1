@@ -15,6 +15,7 @@ import 'theme/app_theme.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/supabase_service.dart';
+import 'services/sync_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,13 +29,24 @@ void main() async {
   await initializeDateFormatting('fr_FR', null).catchError((_) {});
   
   // Seed database if empty with mock data
-  await SupabaseService.instance.seedIfEmpty();
+  try {
+    await SupabaseService.instance.seedIfEmpty();
+  } catch (e) {
+    print('Seed skipped (offline): \$e');
+  }
   
-  runApp(const GlobalPreventionApp());
+  // Initialize Background sync listening
+  SyncService.instance.initialize();
+  
+  // Auto-login (Offline included)
+  final bool isLoggedIn = await SupabaseService.instance.tryAutoLogin();
+  
+  runApp(GlobalPreventionApp(isLoggedIn: isLoggedIn));
 }
 
 class GlobalPreventionApp extends StatelessWidget {
-  const GlobalPreventionApp({super.key});
+  final bool isLoggedIn;
+  const GlobalPreventionApp({super.key, this.isLoggedIn = false});
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +54,7 @@ class GlobalPreventionApp extends StatelessWidget {
       title: 'Global Prevention — GMAO',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const LoginScreen(),
+      home: isLoggedIn ? const DashboardScreen() : const LoginScreen(),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

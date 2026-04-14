@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../widgets/responsive_layout.dart';
 import '../services/siret_service.dart';
 import '../services/supabase_service.dart';
+import '../repositories/client_repository.dart';
 import '../models/models.dart';
 
 class ClientFormScreen extends StatefulWidget {
@@ -52,9 +53,6 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _typeClient = _getTypeLabel(c?.typeClient);
 
     _codeController = TextEditingController(text: c?.codeClient ?? '');
-    if (c == null) {
-      _loadNextClientCode();
-    }
     _raisonSocialeController = TextEditingController(text: c?.raisonSociale ?? '');
     _siretController = TextEditingController(text: c?.siret ?? '');
     _nafController = TextEditingController(text: c?.codeNaf ?? '');
@@ -109,13 +107,6 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _activiteController.dispose();
     _risquesController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadNextClientCode() async {
-    final nextCode = await SupabaseService.instance.getNextClientCode();
-    setState(() {
-      _codeController.text = nextCode;
-    });
   }
 
   Future<void> _lookupSiret() async {
@@ -192,13 +183,12 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _codeController,
+                    readOnly: true,
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.tag_rounded),
-                      helperText: 'Généré automatiquement — modifiable par admin',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.refresh_rounded),
-                        onPressed: _loadNextClientCode,
-                      ),
+                      helperText: widget.clientToEdit == null 
+                          ? 'Généré automatiquement à l\'enregistrement'
+                          : 'Code unique généré non modifiable',
                     ),
                   ),
                   const SizedBox(height: 28),
@@ -673,12 +663,16 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   void _handleSave() async {
     if (_formKey.currentState?.validate() ?? false) {
       try {
+        // Generate code precisely at insert time if this is a new client
+        String finalCodeClient = _codeController.text;
+        if (widget.clientToEdit == null || finalCodeClient.isEmpty) {
+          finalCodeClient = await SupabaseService.instance.getNextClientCode();
+        }
+
         // Create new client object
         final newClient = Client(
-          clientId: '', // Supabase will generate a UUID if we skip it in toJson or let it handle it
-          codeClient: _codeController.text.isNotEmpty 
-              ? _codeController.text 
-              : 'GP-${DateTime.now().year}-XXXX', // Fallback, should not happen with auto-load
+          clientId: '', // Supabase will generate a UUID
+          codeClient: finalCodeClient,
           raisonSociale: _raisonSocialeController.text,
           typeClient: _getTypeClientEnum(_typeClient),
           adresse: _adresseController.text,
@@ -704,11 +698,11 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           noteInterne: _notesController.text.isNotEmpty ? _notesController.text : null,
         );
 
-        // Save to Supabase
+        // Save to Local Repository
         if (widget.clientToEdit != null) {
-          await SupabaseService.instance.updateClient(widget.clientToEdit!.clientId, newClient);
+          await ClientRepository.instance.updateClient(widget.clientToEdit!.clientId, newClient);
         } else {
-          await SupabaseService.instance.insertClient(newClient);
+          await ClientRepository.instance.createClient(newClient);
         }
 
         if (!mounted) return;

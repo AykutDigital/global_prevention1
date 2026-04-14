@@ -6,6 +6,7 @@ import '../widgets/app_scaffold.dart';
 import '../widgets/responsive_layout.dart';
 import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
+import '../repositories/client_repository.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -44,15 +45,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             valueListenable: AppContextService.instance.isSauvdefibActive,
             builder: (context, sdActive, _) {
               return StreamBuilder<List<Client>>(
-                stream: SupabaseService.instance.clientsStream,
+                stream: ClientRepository.instance.clientsStream,
                 builder: (context, clientSnapshot) {
                   return StreamBuilder<List<Intervention>>(
                     stream: SupabaseService.instance.interventionsStream,
+                    initialData: const [],
                     builder: (context, interventionSnapshot) {
                       return StreamBuilder<List<Relance>>(
                         stream: SupabaseService.instance.relancesStream,
+                        initialData: const [],
                         builder: (context, relanceSnapshot) {
-                          if (clientSnapshot.connectionState == ConnectionState.waiting) {
+                          if (!clientSnapshot.hasData && clientSnapshot.connectionState == ConnectionState.waiting) {
                             return const Center(child: CircularProgressIndicator());
                           }
 
@@ -115,7 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<Intervention> _getEventsForDay(List<Intervention> interventions, DateTime day) {
-    return interventions.where((i) => isSameDay(i.dateIntervention, day)).toList();
+    return interventions.where((i) => isSameDay(i.scheduledDate, day)).toList();
   }
 
   Widget _buildKpiGrid(List<Client> clients, List<Relance> relances, bool isMobile, bool isTablet, bool vfActive, bool sdActive) {
@@ -226,6 +229,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         lastDay: DateTime.utc(2030, 12, 31),
         focusedDay: _focusedDay,
         calendarFormat: _calendarFormat,
+        startingDayOfWeek: StartingDayOfWeek.monday,
+        availableCalendarFormats: const {
+          CalendarFormat.month: 'Mois',
+        },
         eventLoader: (day) => _getEventsForDay(interventions, day).where((i) => 
           (i.branche == Branche.veriflamme && vfActive) || (i.branche == Branche.sauvdefib && sdActive)
         ).toList(),
@@ -235,24 +242,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _focusedDay = focused;
         }),
         onFormatChanged: (format) => setState(() => _calendarFormat = format),
+        onPageChanged: (focusedDay) {
+          _focusedDay = focusedDay;
+        },
         headerStyle: const HeaderStyle(
           formatButtonShowsNext: false,
+          formatButtonVisible: false,
           titleCentered: true,
+          titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          leftChevronIcon: Icon(Icons.chevron_left, size: 20),
+          rightChevronIcon: Icon(Icons.chevron_right, size: 20),
         ),
         calendarStyle: CalendarStyle(
-          todayDecoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.15), shape: BoxShape.circle),
-          todayTextStyle: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w700),
+          outsideDaysVisible: false,
+          markerSize: 6,
+          todayDecoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.1), shape: BoxShape.circle),
+          todayTextStyle: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
           selectedDecoration: const BoxDecoration(color: AppTheme.primary, shape: BoxShape.circle),
-          markerSize: 7,
+        ),
+        rowHeight: 42,
+        daysOfWeekHeight: 20,
+        daysOfWeekStyle: const DaysOfWeekStyle(
+          weekdayStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+          weekendStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
         ),
         calendarBuilders: CalendarBuilders(
           markerBuilder: (context, date, events) {
-            if (events.isEmpty) return const SizedBox();
+            if (events.isEmpty) return null;
             return Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: events.take(3).map((event) => Container(
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                width: 6, height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                width: 5, height: 5,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: event.branche == Branche.veriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,

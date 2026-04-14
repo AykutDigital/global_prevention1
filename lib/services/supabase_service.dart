@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 
@@ -8,24 +10,73 @@ class SupabaseService {
 
   final SupabaseClient _client = Supabase.instance.client;
   
+  SupabaseClient get rawClient => _client;
+
   Technician? currentTechnician;
+
+  Future<bool> tryAutoLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('offline_tech');
+      if (cachedStr != null) {
+        currentTechnician = Technician.fromJson(jsonDecode(cachedStr));
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
 
   // ─── AUTH & TECHNICIANS ─────────────────────────────────────────────
 
   Future<Technician?> login(String email, String password) async {
-    final data = await _client
-        .from('technicians')
-        .select()
-        .eq('email', email)
-        .eq('password', password)
-        .eq('actif', true)
-        .maybeSingle();
+    try {
+      final data = await _client
+          .from('technicians')
+          .select()
+          .eq('email', email)
+          .eq('password', password)
+          .eq('actif', true)
+          .maybeSingle();
 
-    if (data != null) {
-      currentTechnician = Technician.fromJson(data);
-      return currentTechnician;
+      if (data != null) {
+        currentTechnician = Technician.fromJson(data);
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('offline_tech', jsonEncode(data));
+        } catch (_) {}
+        return currentTechnician;
+      }
+      return null;
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('Failed host lookup')) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final cachedStr = prefs.getString('offline_tech');
+          if (cachedStr != null) {
+            final Map<String, dynamic> data = jsonDecode(cachedStr);
+            if (data['email'] == email && data['password'] == password) {
+              currentTechnician = Technician.fromJson(data);
+              return currentTechnician;
+            } else {
+              return null; // Equivalent of invalid credentials
+            }
+          } else {
+            throw Exception("Première connexion impossible sans accès à Internet.");
+          }
+        } catch (e) {
+          if (e is Exception) rethrow; // rethrow the first connection exception
+        }
+      }
+      rethrow;
     }
-    return null;
+  }
+
+  Future<void> logout() async {
+    currentTechnician = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('offline_tech');
+    } catch (_) {}
   }
 
   Stream<List<Technician>> get techniciansStream {
@@ -69,7 +120,37 @@ class SupabaseService {
   }
 
   Future<void> insertClient(Client client) async {
-    await _client.from('clients').insert(client.toJson());
+    int retries = 0;
+    bool success = false;
+    Map<String, dynamic> data = client.toJson();
+    
+    if (client.clientId.isEmpty) {
+      data.remove('id');
+      data.remove('clientId');
+    }
+
+    while (!success && retries < 3) {
+      if (retries > 0) {
+        data['code_client'] = await getNextClientCode(); // Retry with a new code
+      }
+      try {
+        await _client.from('clients').insert(data);
+        success = true;
+      } on PostgrestException catch (e) {
+        // 23505 is PostgreSQL code for unique_violation
+        if (e.code == '23505') {
+          retries++;
+        } else {
+          rethrow;
+        }
+      } catch (e) {
+        rethrow;
+      }
+    }
+    
+    if (!success) {
+      throw Exception('Impossible de générer un code client unique après 3 tentatives.');
+    }
   }
 
   Future<void> updateClient(String id, Client client) async {

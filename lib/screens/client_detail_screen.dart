@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/responsive_layout.dart';
 import '../services/supabase_service.dart';
+import '../repositories/client_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'report_preview_screen.dart';
 import '../services/pdf_service.dart';
@@ -682,7 +683,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             onPressed: () async {
               Navigator.pop(context); // Close dialog
               try {
-                await SupabaseService.instance.deleteClient(client.clientId);
+                await ClientRepository.instance.deleteClient(client.clientId);
                 if (context.mounted) {
                   Navigator.pop(context); // Go back to list
                   ScaffoldMessenger.of(context).showSnackBar(
