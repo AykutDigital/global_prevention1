@@ -1570,15 +1570,21 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       );
       print('PDF généré avec succès: ${pdfFile.path}');
 
-      // 4. Upload PDF to Cloud (Supabase)
+      // 4. Upload PDF to Cloud (Supabase) — optionnel
       print('Étape 4: Upload du PDF vers le stockage...');
-      String pdfUrl = await SupabaseService.instance.uploadFile('rapports', 'reports/${rapport.numeroRapport}.pdf', pdfFile);
-      print('PDF uploadé. URL: $pdfUrl');
-      
+      String pdfUrl = '';
+      try {
+        pdfUrl = await SupabaseService.instance.uploadFile('rapports', 'reports/${rapport.numeroRapport}.pdf', pdfFile);
+        print('PDF uploadé. URL: $pdfUrl');
+      } catch (storageErr) {
+        print('Upload PDF échoué (stockage non configuré ou RLS) : $storageErr');
+        print('Le rapport sera sauvegardé sans URL cloud.');
+      }
+
       // 5. Insert Rapport
       print('Étape 5: Insertion du rapport...');
       await SupabaseService.instance.insertRapport(rapport.copyWith(
-        pdfUrl: pdfUrl,
+        pdfUrl: pdfUrl.isNotEmpty ? pdfUrl : null,
       ));
       print('Rapport inséré avec succès.');
 
