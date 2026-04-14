@@ -421,7 +421,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
             padding: const EdgeInsets.all(14),
             child: Column(
               children: [
-                _readOnlyInfoRow('Date du rapport', DateFormat('dd/MM/yyyy').format(DateTime.now())),
+                _readOnlyInfoRow('Date du rapport', DateFormat('dd/MM/yyyy').format(_scheduledDate)),
                 _readOnlyInfoRow('Code client', client.codeClient),
                 _readOnlyInfoRow('N° de rapport', 'Généré automatiquement'),
                 _readOnlyInfoRow('Technicien', _selectedTechnician?.nomComplet ?? '-'),
@@ -933,10 +933,10 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
 
     final rapport = Rapport(
       rapportId: 'preview',
-      numeroRapport: 'PREV-${DateFormat('yyyyMMdd').format(DateTime.now())}',
+      numeroRapport: 'PREV-${DateFormat('yyyyMMdd').format(_scheduledDate)}',
       interventionId: 'preview',
       typeRapport: _selectedType,
-      dateCreation: DateTime.now(),
+      dateCreation: _scheduledDate,
       conformite: _selectedConformite,
       emailEnvoye: false,
       recommandations: _recommandationsController.text,
@@ -1524,13 +1524,13 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         numeroRapport: reportNumber,
         interventionId: interventionId,
         typeRapport: _selectedType,
-        dateCreation: DateTime.now(),
+        dateCreation: _scheduledDate,
         conformite: _selectedConformite,
         emailEnvoye: false,
         recommandations: _recommandationsController.text,
         branche: _selectedBranche,
         equipmentChecks: _equipmentChecks,
-        reportCreatedAt: DateTime.now(),
+        reportCreatedAt: _scheduledDate,
       );
 
       final pdfFile = await PdfService.generateInterventionReport(
