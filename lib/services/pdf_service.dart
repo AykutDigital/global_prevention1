@@ -51,20 +51,29 @@ class PdfService {
         ),
         build: (pw.Context context) {
           return [
-            // Header : Date (gauche) | Titre (centre) | Logo (droite)
+            // Ligne 1 : Date (gauche) + Logo (droite) — légèrement plus haut que le titre
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                // Date en haut à gauche
                 pw.Text('Date : $dateStr', style: const pw.TextStyle(fontSize: 10)),
+                if (logo != null)
+                  pw.Container(width: 130, child: pw.Image(logo))
+                else
+                  pw.Text('GLOBAL PREVENTION', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: primaryColor)),
+              ],
+            ),
+            pw.SizedBox(height: 6),
 
-                // Titre + N° centré
+            // Ligne 2 : Titre + N° centré (en dessous de la date et du logo)
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
                   children: [
                     pw.Text('RAPPORT DE VÉRIFICATION', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
-                    pw.SizedBox(height: 10),
+                    pw.SizedBox(height: 8),
                     pw.Container(
                       padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.black)),
@@ -78,12 +87,6 @@ class PdfService {
                     ),
                   ],
                 ),
-
-                // Logo en haut à droite
-                if (logo != null)
-                  pw.Container(width: 130, child: pw.Image(logo))
-                else
-                  pw.Text('GLOBAL PREVENTION', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: primaryColor)),
               ],
             ),
             pw.SizedBox(height: 15),
@@ -165,7 +168,7 @@ class PdfService {
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           _infoRow('Activité :', intervention.activiteSite ?? client.activite ?? '-'),
-                          _infoRow('Risques particuliers :', intervention.risquesSite ?? client.risquesParticuliers ?? '-'),
+                          _infoRow('Analyse de risque :', _parseRiskSummary(intervention.risquesSite)),
                         ],
                       ),
                     ),
@@ -352,104 +355,114 @@ class PdfService {
                 ),
               ),
 
-            // Ligne 1 : Logo vertical (gauche) + Carré adresse (droite)
+            // Ligne unique : [Signatures gauche] [Logo vertical] [Carré adresse] — alignés sur la même ligne
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                // Logo Veriflamme vertical à gauche du carré
-                if (logo != null)
-                  pw.Transform.rotate(
-                    angle: pi / 2,
-                    child: pw.Container(width: 70, child: pw.Image(logo)),
-                  )
-                else
-                  pw.SizedBox(width: 70),
 
-                // Carré adresse société à droite
-                pw.Container(
-                  padding: const pw.EdgeInsets.all(8),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                  ),
-                  child: pw.Column(
+                // GAUCHE (étendu) : signature client + signature technicien côte à côte
+                pw.Expanded(
+                  child: pw.Row(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(
-                        intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                      // Signature client
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                          pw.SizedBox(height: 8),
+                          if (signatureClient != null)
+                            pw.Image(pw.MemoryImage(signatureClient!), width: 130, height: 60, fit: pw.BoxFit.contain)
+                          else if (isPreview)
+                            pw.Container(
+                              width: 130, height: 60,
+                              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                              child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
+                            ),
+                        ],
                       ),
-                      pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
+                      pw.SizedBox(width: 16),
+                      // Signature technicien
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                          pw.SizedBox(height: 8),
+                          if (signatureTechnicien != null)
+                            pw.Image(pw.MemoryImage(signatureTechnicien), width: 130, height: 60, fit: pw.BoxFit.contain)
+                          else if (isPreview)
+                            pw.Container(
+                              width: 130, height: 60,
+                              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                              child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
+                            ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
 
-            pw.SizedBox(height: 14),
+                // Logo vertical, juste à gauche du badge adresse
+                if (logo != null) ...[
+                  pw.SizedBox(width: 4),
+                  pw.Transform.rotate(
+                    angle: -pi / 2,
+                    child: pw.Image(logo, width: 65, height: 22, fit: pw.BoxFit.contain),
+                  ),
+                  pw.SizedBox(width: 14),
+                ],
 
-            // Ligne 2 : Signatures client (gauche) et technicien (droite) alignées
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                // Signature client (gauche)
+                // Badge adresse sans bordure, avec icônes colorées
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.SizedBox(height: 8),
-                    if (signatureClient != null)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        child: pw.Image(pw.MemoryImage(signatureClient!)),
-                      )
-                    else if (isPreview)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                    // Adresse
+                    pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('◉  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text('20 Av. Des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('Espace Mi-Plaine 1er Étage', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('69680 Chassieu', style: const pw.TextStyle(fontSize: 8)),
+                          ],
                         ),
-                        child: pw.Center(
-                          child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 6),
+                    // Téléphone
+                    pw.Row(
+                      children: [
+                        pw.Text('✆  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 3),
+                    // Site web
+                    pw.Row(
+                      children: [
+                        pw.Text('✱  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text(
+                          intervention.branche == Branche.veriflamme ? 'veriflamme.fr' : 'sauvdefib.fr',
+                          style: const pw.TextStyle(fontSize: 8),
                         ),
-                      ),
-                  ],
-                ),
-
-                // Signature technicien (droite)
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
-                  children: [
-                    pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.SizedBox(height: 8),
-                    if (signatureTechnicien != null)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        child: pw.Image(pw.MemoryImage(signatureTechnicien)),
-                      )
-                    else if (isPreview)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 3),
+                    // Email
+                    pw.Row(
+                      children: [
+                        pw.Text('✉  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text(
+                          intervention.branche == Branche.veriflamme ? 'contact@veriflamme.fr' : 'contact@sauvdefib.fr',
+                          style: const pw.TextStyle(fontSize: 8),
                         ),
-                        child: pw.Center(
-                          child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
-                        ),
-                      ),
-                    pw.SizedBox(height: 4),
-                    pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
                   ],
                 ),
               ],
@@ -509,6 +522,33 @@ class PdfService {
         pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
       ],
     );
+  }
+
+  /// Parse le JSON d'analyse de risque et retourne un résumé lisible
+  static String _parseRiskSummary(String? risquesSite) {
+    if (risquesSite == null || risquesSite.isEmpty) return '-';
+    try {
+      final data = jsonDecode(risquesSite) as Map<String, dynamic>;
+      // Si c'est un JSON d'analyse de risque structuré
+      if (data.containsKey('answers')) {
+        final answers = data['answers'] as Map<String, dynamic>? ?? {};
+        final decision = data['decision'] as bool?;
+        final motif = data['motif'] as String? ?? '';
+        final total = answers.length;
+        final answered = answers.values.where((v) => v != null).length;
+        final nonCount = answers.values.where((v) => v == false).length;
+
+        String summary = 'Analyse complétée ($answered/$total questions)';
+        if (nonCount > 0) summary += ' — $nonCount réponse(s) NON';
+        if (decision != null) {
+          summary += '\nDécision : ${decision ? "✓ Intervention autorisée" : "✗ Intervention refusée/reportée"}';
+        }
+        if (motif.isNotEmpty) summary += '\nMotif : $motif';
+        return summary;
+      }
+    } catch (_) {}
+    // Si c'est du texte libre (anciens rapports), on l'affiche tel quel
+    return risquesSite;
   }
 
   static pw.Widget _infoRow(String label, String value) {

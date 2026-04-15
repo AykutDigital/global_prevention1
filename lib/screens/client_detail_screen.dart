@@ -359,20 +359,30 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                     style: TextStyle(fontSize: 12, color: AppTheme.secondaryText),
                   ),
                 ),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: i.statut.color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    i.statut.label,
-                    style: TextStyle(
-                      color: i.statut.color,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: i.statut.color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        i.statut.label,
+                        style: TextStyle(
+                          color: i.statut.color,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
                     ),
-                  ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                      tooltip: 'Supprimer',
+                      onPressed: () => _confirmDeleteIntervention(context, i),
+                    ),
+                  ],
                 ),
                 onTap: () => _showSnackbar('Détail intervention — en cours de développement'),
               ),
@@ -434,6 +444,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                         IconButton(
                           icon: const Icon(Icons.send_rounded, size: 20, color: AppTheme.infoBlue),
                           onPressed: () => PdfService.sendEmailLink(client.contactEmail, r.pdfUrl ?? '', r.numeroRapport),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+                          tooltip: 'Supprimer',
+                          onPressed: () => _confirmDeleteRapport(context, r, intervention),
                         ),
                       ],
                     ),
@@ -553,7 +568,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 leading: Container(
                   width: 40,
                   height: 40,
@@ -562,14 +577,36 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    e.type == 'Extincteur' ? Icons.fire_extinguisher : Icons.medical_services, 
+                    e.type.toLowerCase().contains('extincteur') ? Icons.fire_extinguisher : Icons.medical_services,
                     color: e.branche == Branche.veriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,
-                    size: 20
+                    size: 20,
                   ),
                 ),
-                title: Text('${e.type} ${e.brand ?? ""}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text('Niveau: ${e.niveau ?? "RDC"} • Emplacement: ${e.location ?? "Non spécifié"}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: const Icon(Icons.chevron_right_rounded),
+                title: Text('${e.type} ${e.capacity ?? ""}'.trim(), style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  [
+                    if (e.brand != null && e.brand!.isNotEmpty) e.brand!,
+                    if (e.niveau != null && e.niveau!.isNotEmpty) 'Niv. ${e.niveau}',
+                    if (e.location != null && e.location!.isNotEmpty) e.location!,
+                  ].join(' • '),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_rounded, size: 20),
+                      color: AppTheme.primary,
+                      tooltip: 'Modifier',
+                      onPressed: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                      color: Colors.red,
+                      tooltip: 'Supprimer',
+                      onPressed: () => _confirmDeleteEquipment(context, e),
+                    ),
+                  ],
+                ),
                 onTap: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
               ),
             );
@@ -577,6 +614,38 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         );
       },
     );
+  }
+
+  Future<void> _confirmDeleteEquipment(BuildContext context, Equipment e) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer l\'équipement'),
+        content: Text('Supprimer "${e.type} ${e.capacity ?? ""}" ? Cette action est irréversible.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await SupabaseService.instance.deleteEquipment(e.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Équipement supprimé'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (err) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $err'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   void _showAddEquipmentDialog(BuildContext context, String clientId, {Equipment? equipmentToEdit}) {
@@ -700,6 +769,77 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteIntervention(BuildContext context, Intervention intervention) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 40),
+        title: const Text('Supprimer l\'intervention ?'),
+        content: const Text(
+          'Cette action supprimera définitivement l\'intervention et le rapport associé. Cette opération est irréversible.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('SUPPRIMER'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        final rapport = await SupabaseService.instance.getRapportByInterventionId(intervention.interventionId);
+        if (rapport != null) {
+          await SupabaseService.instance.deleteRapport(rapport.rapportId);
+        }
+        await SupabaseService.instance.deleteIntervention(intervention.interventionId);
+        if (mounted) _showSnackbar('Intervention supprimée.');
+      } catch (e) {
+        if (mounted) _showSnackbar('Erreur : $e');
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteRapport(BuildContext context, Rapport rapport, Intervention intervention) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 40),
+        title: const Text('Supprimer le rapport ?'),
+        content: Text(
+          'Supprimer uniquement le rapport "${rapport.numeroRapport}" ou aussi l\'intervention associée ?',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Rapport seul', style: TextStyle(color: Colors.orange)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Rapport + Intervention'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await SupabaseService.instance.deleteRapport(rapport.rapportId);
+        await SupabaseService.instance.deleteIntervention(intervention.interventionId);
+        if (mounted) _showSnackbar('Rapport et intervention supprimés.');
+      } catch (e) {
+        if (mounted) _showSnackbar('Erreur : $e');
+      }
+    }
   }
 
   void _showSnackbar(String message) {
@@ -847,9 +987,7 @@ class _EquipmentFormDialogState extends State<_EquipmentFormDialog> {
       if (e == null) {
         await SupabaseService.instance.insertEquipment(newEq);
       } else {
-        // We might need an updateEquipment method if we want to edit
-        // For now, let's assume insertEquipment handles upsert or we just add the method
-        await SupabaseService.instance.insertEquipment(newEq); // Assuming upsert logic
+        await SupabaseService.instance.updateEquipment(e.id, newEq);
       }
 
       if (mounted) {

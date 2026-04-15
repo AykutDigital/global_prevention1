@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -63,6 +64,37 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     }
   }
 
+  /// Télécharge toutes les photos de l'intervention depuis Supabase Storage.
+  /// Appelé directement dans le build: callback de PdfPreview pour garantir
+  /// que les photos sont prêtes avant la génération du PDF.
+  Future<List<File>?> _downloadInterventionPhotos() async {
+    try {
+      final photos = await SupabaseService.instance
+          .getInterventionPhotosStream(widget.intervention.interventionId)
+          .first;
+      if (photos.isEmpty) return null;
+
+      final tmpDir = await getTemporaryDirectory();
+      final files = <File>[];
+      for (final photo in photos) {
+        try {
+          final response = await http.get(Uri.parse(photo.url));
+          if (response.statusCode == 200) {
+            final file = File('${tmpDir.path}/photo_${photo.id}.jpg');
+            await file.writeAsBytes(response.bodyBytes);
+            files.add(file);
+          }
+        } catch (e) {
+          debugPrint('Erreur téléchargement photo ${photo.id}: $e');
+        }
+      }
+      return files.isEmpty ? null : files;
+    } catch (e) {
+      debugPrint('Erreur récupération photos: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -71,8 +103,8 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isPreview 
-          ? 'Prévisualisation du rapport' 
+        title: Text(widget.isPreview
+          ? 'Prévisualisation du rapport'
           : 'Rapport ${widget.rapport.numeroRapport}'),
         actions: [
           if (!widget.isPreview && (widget.rapport.pdfUrl != null || (widget.signatureClient != null && widget.signatureTechnicien != null)))
@@ -112,11 +144,15 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
           Expanded(
             child: PdfPreview(
               build: (format) async {
-                // In preview mode, always generate locally without signatures
+                // ── Mode prévisualisation (avant signature) ──────────────────
                 if (widget.isPreview) {
                   Uint8List? logoBytes;
                   try {
-                    final logoData = await rootBundle.load(widget.intervention.branche == Branche.veriflamme ? 'assets/images/veriflamme.png' : 'assets/images/sauvdefib.png');
+                    final logoData = await rootBundle.load(
+                      widget.intervention.branche == Branche.veriflamme
+                          ? 'assets/images/veriflamme.png'
+                          : 'assets/images/sauvdefib.png',
+                    );
                     logoBytes = logoData.buffer.asUint8List();
                   } catch (e) {
                     debugPrint('Erreur logo: $e');
@@ -131,7 +167,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                   );
                 }
 
-                // Si le PDF existe déjà sur le Cloud, on affiche le fichier réel (avec signatures)
+                // ── Rapport final : essayer d'abord le PDF stocké sur le Cloud ──
                 if (widget.rapport.pdfUrl != null && widget.rapport.pdfUrl!.isNotEmpty) {
                   try {
                     final response = await http.get(Uri.parse(widget.rapport.pdfUrl!));
@@ -139,28 +175,49 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                       return response.bodyBytes;
                     }
                   } catch (e) {
-                    debugPrint('Erreur lors du téléchargement du PDF: $e');
+                    debugPrint('Erreur téléchargement PDF cloud: $e');
                   }
                 }
-                
-                // Chargement du logo de branche
+
+                // ── Génération locale (pdfUrl absent ou échec) ───────────────
                 Uint8List? logoBytes;
                 try {
-                  final logoData = await rootBundle.load(widget.intervention.branche == Branche.veriflamme ? 'assets/images/veriflamme.png' : 'assets/images/sauvdefib.png');
+                  final logoData = await rootBundle.load(
+                    widget.intervention.branche == Branche.veriflamme
+                        ? 'assets/images/veriflamme.png'
+                        : 'assets/images/sauvdefib.png',
+                  );
                   logoBytes = logoData.buffer.asUint8List();
                 } catch (e) {
                   debugPrint('Erreur logo: $e');
                 }
-                
-                // Sinon (génération en cours ou visualisation locale), on génère les bytes
+
+                // Décoder les signatures stockées en base64 dans signatureUrl
+                Uint8List? sigClient = widget.signatureClient;
+                Uint8List? sigTech = widget.signatureTechnicien;
+                if ((sigClient == null || sigTech == null) && widget.rapport.signatureUrl != null) {
+                  try {
+                    final sigData = jsonDecode(widget.rapport.signatureUrl!) as Map<String, dynamic>;
+                    sigClient ??= base64Decode(sigData['client'] as String);
+                    sigTech ??= base64Decode(sigData['tech'] as String);
+                  } catch (e) {
+                    debugPrint('Impossible de décoder les signatures stockées: $e');
+                  }
+                }
+
+                // Télécharger les photos depuis Supabase (directement ici pour
+                // garantir qu'elles sont disponibles avant la génération du PDF)
+                final photoFiles = await _downloadInterventionPhotos();
+
                 return PdfService.buildReportBytes(
                   client: widget.client,
                   intervention: widget.intervention,
                   rapport: widget.rapport,
                   equipments: _equipments ?? [],
                   logoBytes: logoBytes,
-                  signatureClient: widget.signatureClient,
-                  signatureTechnicien: widget.signatureTechnicien,
+                  signatureClient: sigClient,
+                  signatureTechnicien: sigTech,
+                  interventionPhotos: photoFiles,
                 );
               },
               canDebug: false,
@@ -197,11 +254,17 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
         } else {
           Uint8List? logoBytes;
           try {
-            final logoData = await rootBundle.load(widget.intervention.branche == Branche.veriflamme ? 'assets/images/veriflamme.png' : 'assets/images/sauvdefib.png');
+            final logoData = await rootBundle.load(
+              widget.intervention.branche == Branche.veriflamme
+                  ? 'assets/images/veriflamme.png'
+                  : 'assets/images/sauvdefib.png',
+            );
             logoBytes = logoData.buffer.asUint8List();
           } catch (e) {
             debugPrint('Erreur logo: $e');
           }
+
+          final photoFiles = await _downloadInterventionPhotos();
 
           pdfBytes = await PdfService.buildReportBytes(
             client: widget.client,
@@ -211,6 +274,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
             logoBytes: logoBytes,
             signatureClient: widget.signatureClient,
             signatureTechnicien: widget.signatureTechnicien,
+            interventionPhotos: photoFiles,
           );
         }
 
@@ -221,9 +285,9 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
 
         // 3. Lancer le partage (ouvre l'app Mail/Gmail avec pièce jointe)
         await PdfService.shareFile(
-          file, 
+          file,
           'Rapport de vérification ${widget.rapport.branche.label} - ${widget.rapport.numeroRapport}',
-          text: 'Veuillez trouver ci-joint votre rapport d\'intervention.', 
+          text: 'Veuillez trouver ci-joint votre rapport d\'intervention.',
         );
       },
     );

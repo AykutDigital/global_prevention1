@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
+import '../utils/password_helper.dart';
 
 class SupabaseService {
   static final SupabaseService instance = SupabaseService._();
@@ -29,20 +30,51 @@ class SupabaseService {
   // ─── AUTH & TECHNICIANS ─────────────────────────────────────────────
 
   Future<Technician?> login(String email, String password) async {
+    final hashedPassword = PasswordHelper.hash(password, email);
+
     try {
-      final data = await _client
+      // 1. Essai avec le mot de passe hashé (cas normal)
+      Map<String, dynamic>? data = await _client
           .from('technicians')
           .select()
           .eq('email', email)
-          .eq('password', password)
+          .eq('password', hashedPassword)
           .eq('actif', true)
           .maybeSingle();
+
+      // 2. Migration : si non trouvé, on essaie le mot de passe en clair (anciens comptes)
+      if (data == null) {
+        data = await _client
+            .from('technicians')
+            .select()
+            .eq('email', email)
+            .eq('password', password)
+            .eq('actif', true)
+            .maybeSingle();
+
+        if (data != null) {
+          // On migre automatiquement vers le hash
+          try {
+            await _client
+                .from('technicians')
+                .update({'password': hashedPassword})
+                .eq('id', data['id'] as String);
+            data['password'] = hashedPassword;
+            print('Mot de passe migré vers hash pour $email');
+          } catch (e) {
+            print('Erreur migration hash: $e');
+          }
+        }
+      }
 
       if (data != null) {
         currentTechnician = Technician.fromJson(data);
         try {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('offline_tech', jsonEncode(data));
+          // On stocke le hash (jamais le mot de passe en clair)
+          final cacheData = Map<String, dynamic>.from(data);
+          cacheData['password'] = hashedPassword;
+          await prefs.setString('offline_tech', jsonEncode(cacheData));
         } catch (_) {}
         return currentTechnician;
       }
@@ -54,17 +86,20 @@ class SupabaseService {
           final cachedStr = prefs.getString('offline_tech');
           if (cachedStr != null) {
             final Map<String, dynamic> data = jsonDecode(cachedStr);
-            if (data['email'] == email && data['password'] == password) {
+            final cachedEmail = data['email'] as String? ?? '';
+            final cachedHash = data['password'] as String? ?? '';
+            // Vérification hors-ligne : on compare le hash
+            if (cachedEmail == email && cachedHash == hashedPassword) {
               currentTechnician = Technician.fromJson(data);
               return currentTechnician;
             } else {
-              return null; // Equivalent of invalid credentials
+              return null;
             }
           } else {
             throw Exception("Première connexion impossible sans accès à Internet.");
           }
         } catch (e) {
-          if (e is Exception) rethrow; // rethrow the first connection exception
+          if (e is Exception) rethrow;
         }
       }
       rethrow;
@@ -183,6 +218,14 @@ class SupabaseService {
 
   Future<void> insertEquipment(Equipment equipment) async {
     await _client.from('equipment').insert(equipment.toJson());
+  }
+
+  Future<void> updateEquipment(String id, Equipment equipment) async {
+    await _client.from('equipment').update(equipment.toJson()).eq('id', id);
+  }
+
+  Future<void> deleteEquipment(String id) async {
+    await _client.from('equipment').delete().eq('id', id);
   }
 
   // ─── INTERVENTIONS ──────────────────────────────────────────────────

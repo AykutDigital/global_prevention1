@@ -55,9 +55,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   Uint8List? _signatureTechnicien;
   final _recommandationsController = TextEditingController();
   final _activiteController = TextEditingController();
-  final _risquesController = TextEditingController();
+  final _motifController = TextEditingController();
   final _surfaceController = TextEditingController();
   bool _registreSecurite = true;
+  // Analyse de risque — réponses Oui/Non par ID de question
+  final Map<String, bool?> _riskAnswers = {};
+  bool? _interventionDecision; // true = autorisée, false = refusée/reportée
   Conformite _selectedConformite = Conformite.conforme;
   bool _isSaving = false;
   List<Equipment> _allEquipments = []; // Cache for PDF generation
@@ -112,7 +115,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   void dispose() {
     _recommandationsController.dispose();
     _activiteController.dispose();
-    _risquesController.dispose();
+    _motifController.dispose();
     _surfaceController.dispose();
     _factNomController.dispose();
     _factAdresseController.dispose();
@@ -287,7 +290,6 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                     _selectedClient = client;
                     // Pre-fill site info from client
                     _activiteController.text = client.activite ?? '';
-                    _risquesController.text = client.risquesParticuliers ?? '';
                   }),
                     leading: isSelected
                         ? Icon(Icons.check_circle_rounded, color: AppTheme.infoBlue)
@@ -367,39 +369,324 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     );
   }
 
+  // ─── Données du questionnaire d'analyse de risque ───────────────────
+  static const List<Map<String, dynamic>> _riskSections = [
+    {
+      'id': 's1', 'emoji': '🏢', 'title': '1. Accès au site',
+      'warning': 'Si NON → ne pas intervenir / contacter le responsable',
+      'questions': [
+        {'id': 'q1_1', 'text': 'Le site est-il accessible en toute sécurité ?'},
+        {'id': 'q1_2', 'text': 'Les accès (parking, entrée) sont-ils dégagés et sans danger ?'},
+        {'id': 'q1_3', 'text': 'Le technicien a-t-il été accueilli / informé des consignes sécurité ?'},
+        {'id': 'q1_4', 'text': 'Un plan de prévention ou protocole de sécurité est-il nécessaire ?'},
+      ],
+    },
+    {
+      'id': 's2', 'emoji': '🚶', 'title': '2. Circulation et déplacements',
+      'warning': null,
+      'questions': [
+        {'id': 'q2_1', 'text': 'Les zones de circulation sont-elles dégagées ?'},
+        {'id': 'q2_2', 'text': 'Le sol est-il en bon état (pas glissant, pas encombré) ?'},
+        {'id': 'q2_3', 'text': 'Y a-t-il un risque de chute de plain-pied ?'},
+        {'id': 'q2_4', 'text': 'Y a-t-il un risque de chute de hauteur (escabeau nécessaire) ?'},
+      ],
+    },
+    {
+      'id': 's3', 'emoji': '⚡', 'title': '3. Risques électriques',
+      'warning': 'Si doute → ne pas intervenir',
+      'questions': [
+        {'id': 'q3_1', 'text': 'L\'intervention se fait-elle à proximité d\'installations électriques ?'},
+        {'id': 'q3_2', 'text': 'Les installations semblent-elles en bon état apparent ?'},
+        {'id': 'q3_3', 'text': 'Les distances de sécurité peuvent-elles être respectées ?'},
+      ],
+    },
+    {
+      'id': 's4', 'emoji': '🧪', 'title': '4. Risques chimiques / atmosphère',
+      'warning': null,
+      'questions': [
+        {'id': 'q4_1', 'text': 'Y a-t-il présence de produits dangereux (poussières, vapeurs, produits chimiques) ?'},
+        {'id': 'q4_2', 'text': 'La zone est-elle correctement ventilée ?'},
+        {'id': 'q4_3', 'text': 'Le technicien dispose-t-il des EPI adaptés ?'},
+      ],
+    },
+    {
+      'id': 's5', 'emoji': '💥', 'title': '5. Risques liés aux extincteurs (pression)',
+      'warning': '⚠️ Interdiction de démonter un extincteur sous pression\nEn cas d\'anomalie → mise à l\'écart + signalement',
+      'questions': [
+        {'id': 'q5_1', 'text': 'Les extincteurs sont-ils en bon état apparent (pas de choc, corrosion) ?'},
+        {'id': 'q5_2', 'text': 'Le manomètre est-il lisible et dans la zone normale ?'},
+        {'id': 'q5_3', 'text': 'L\'intervention nécessite-t-elle un démontage ?'},
+      ],
+    },
+    {
+      'id': 's6', 'emoji': '🏋️', 'title': '6. Manutention',
+      'warning': null,
+      'questions': [
+        {'id': 'q6_1', 'text': 'Les extincteurs sont-ils facilement accessibles ?'},
+        {'id': 'q6_2', 'text': 'Le poids est-il adapté à une manutention manuelle ?'},
+        {'id': 'q6_3', 'text': 'Un moyen de manutention est-il disponible (diable, chariot) ?'},
+        {'id': 'q6_4', 'text': 'Les gestes et postures peuvent-ils être respectés ?'},
+      ],
+    },
+    {
+      'id': 's7', 'emoji': '🏢', 'title': '7. Environnement de travail',
+      'warning': null,
+      'questions': [
+        {'id': 'q7_1', 'text': 'La zone de travail est-elle suffisamment éclairée ?'},
+        {'id': 'q7_2', 'text': 'Y a-t-il des obstacles ou zones dangereuses à proximité ?'},
+        {'id': 'q7_3', 'text': 'Le technicien est-il exposé à du bruit, chaleur ou froid ?'},
+      ],
+    },
+    {
+      'id': 's8', 'emoji': '🚗', 'title': '8. Risques liés au déplacement',
+      'warning': null,
+      'questions': [
+        {'id': 'q8_1', 'text': 'Le stationnement est-il sécurisé ?'},
+        {'id': 'q8_2', 'text': 'Le matériel peut-il être transporté sans danger ?'},
+      ],
+    },
+    {
+      'id': 's9', 'emoji': '🧑‍🔧', 'title': '9. Équipements de protection individuelle',
+      'warning': null,
+      'questions': [
+        {'id': 'q9_1', 'text': 'Chaussures de sécurité'},
+        {'id': 'q9_2', 'text': 'Gants'},
+        {'id': 'q9_3', 'text': 'Lunettes'},
+        {'id': 'q9_4', 'text': 'Masque si nécessaire'},
+      ],
+    },
+    {
+      'id': 's10', 'emoji': '🧠', 'title': '10. Organisation et sécurité globale',
+      'warning': null,
+      'questions': [
+        {'id': 'q10_1', 'text': 'Le technicien travaille-t-il seul ?'},
+        {'id': 'q10_2', 'text': 'Dispose-t-il d\'un moyen de communication ?'},
+        {'id': 'q10_3', 'text': 'Les consignes d\'urgence sont-elles connues ?'},
+      ],
+    },
+  ];
+
   Widget _buildRiskStep() {
+    final answered = _riskAnswers.values.where((v) => v != null).length;
+    final total = _riskSections.fold<int>(0, (sum, s) => sum + (s['questions'] as List).length);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Barre de progression
+        Row(children: [
+          Expanded(child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: total == 0 ? 0 : answered / total,
+              backgroundColor: AppTheme.divider,
+              color: answered == total ? AppTheme.successGreen : AppTheme.infoBlue,
+              minHeight: 6,
+            ),
+          )),
+          const SizedBox(width: 12),
+          Text('$answered / $total', style: TextStyle(
+            fontSize: 12, fontWeight: FontWeight.w600,
+            color: answered == total ? AppTheme.successGreen : AppTheme.secondaryText,
+          )),
+        ]),
+        const SizedBox(height: 16),
+
+        // Sections du questionnaire
+        ..._riskSections.map((section) => _buildRiskSection(section)),
+
+        const SizedBox(height: 8),
+
+        // ── Décision finale ──────────────────────────────────
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppTheme.infoBlueLight,
-            borderRadius: BorderRadius.circular(10),
+            color: _interventionDecision == null
+                ? const Color(0xFFFFF8E1)
+                : _interventionDecision == true
+                    ? const Color(0xFFE8F5E9)
+                    : const Color(0xFFFFEBEE),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _interventionDecision == null
+                  ? const Color(0xFFFFB300)
+                  : _interventionDecision == true
+                      ? AppTheme.successGreen
+                      : Colors.red,
+              width: 1.5,
+            ),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_rounded, color: AppTheme.infoBlue),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'L\'analyse de risque doit être validée avant de démarrer l\'intervention.',
-                  style: TextStyle(color: AppTheme.infoBlue, fontSize: 13),
-                ),
+              const Text('🚨 Décision d\'intervention',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              const SizedBox(height: 4),
+              const Text(
+                'Toutes les conditions sont réunies pour intervenir en sécurité :',
+                style: TextStyle(fontSize: 13),
               ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  _decisionRadio(true, 'Oui → Intervention autorisée', AppTheme.successGreen),
+                  _decisionRadio(false, 'Non → Refusée / reportée', Colors.red),
+                ],
+              ),
+              if (_interventionDecision == false) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _motifController,
+                  decoration: const InputDecoration(
+                    labelText: 'Motif du refus',
+                    hintText: '...',
+                    prefixIcon: Icon(Icons.edit_note_rounded),
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.pushNamed(context, '/risk-analysis'),
-          icon: const Icon(Icons.checklist_rounded),
-          label: const Text('Démarrer l\'analyse de risque'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          ),
-        ),
+        const SizedBox(height: 8),
       ],
+    );
+  }
+
+  Widget _buildRiskSection(Map<String, dynamic> section) {
+    final questions = section['questions'] as List;
+    final warning = section['warning'] as String?;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête de section
+          Row(children: [
+            Text(section['emoji'] as String, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(
+              section['title'] as String,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            )),
+          ]),
+          const SizedBox(height: 8),
+
+          // Questions
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.divider),
+            ),
+            child: Column(
+              children: [
+                ...questions.asMap().entries.map((entry) {
+                  final q = entry.value as Map<String, dynamic>;
+                  final qId = q['id'] as String;
+                  final isLast = entry.key == questions.length - 1;
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Row(
+                          children: [
+                            Expanded(child: Text(q['text'] as String,
+                                style: const TextStyle(fontSize: 13))),
+                            const SizedBox(width: 8),
+                            _yesNoToggle(qId),
+                          ],
+                        ),
+                      ),
+                      if (!isLast) Divider(height: 1, color: AppTheme.divider),
+                    ],
+                  );
+                }),
+              ],
+            ),
+          ),
+
+          // Avertissement si présent
+          if (warning != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Color(0xFFF57C00)),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(warning,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFFF57C00)))),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _yesNoToggle(String qId) {
+    final val = _riskAnswers[qId];
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _toggleBtn(qId, true, 'Oui', val == true, AppTheme.successGreen),
+        const SizedBox(width: 4),
+        _toggleBtn(qId, false, 'Non', val == false, Colors.red),
+      ],
+    );
+  }
+
+  Widget _toggleBtn(String qId, bool value, String label, bool selected, Color color) {
+    return GestureDetector(
+      onTap: () => setState(() => _riskAnswers[qId] = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected ? color : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: selected ? color : AppTheme.divider),
+        ),
+        child: Text(label, style: TextStyle(
+          fontSize: 12, fontWeight: FontWeight.w600,
+          color: selected ? Colors.white : AppTheme.secondaryText,
+        )),
+      ),
+    );
+  }
+
+  Widget _decisionRadio(bool value, String label, Color color) {
+    final selected = _interventionDecision == value;
+    return GestureDetector(
+      onTap: () => setState(() => _interventionDecision = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? color : AppTheme.divider, width: selected ? 1.5 : 1),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+              size: 18, color: selected ? color : AppTheme.secondaryText),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(
+            fontSize: 12, fontWeight: FontWeight.w600,
+            color: selected ? color : AppTheme.secondaryText,
+          )),
+        ]),
+      ),
     );
   }
 
@@ -534,17 +821,10 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                Row(children: [
-                  Expanded(child: TextFormField(
-                    controller: _activiteController,
-                    decoration: const InputDecoration(labelText: 'Activité du site', hintText: 'Ex : bureau, usine…', prefixIcon: Icon(Icons.work_rounded, size: 18)),
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: TextFormField(
-                    controller: _risquesController,
-                    decoration: const InputDecoration(labelText: 'Risques particuliers', hintText: 'Ex : chimique, inflammable…', prefixIcon: Icon(Icons.warning_rounded, size: 18)),
-                  )),
-                ]),
+                TextFormField(
+                  controller: _activiteController,
+                  decoration: const InputDecoration(labelText: 'Activité du site', hintText: 'Ex : bureau, usine…', prefixIcon: Icon(Icons.work_rounded, size: 18)),
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _surfaceController,
@@ -735,42 +1015,49 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                           foregroundColor: isChecked ? Colors.white : AppTheme.tertiaryText,
                           child: Text('$idx', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                         ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${eq.type} ${eq.capacity ?? ""} — ${eq.location ?? "Sans emplacement"}',
-                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            if (isChecked && check.localPath != null)
-                              const Padding(
-                                padding: EdgeInsets.only(left: 4),
-                                child: Icon(Icons.photo_camera, size: 14, color: AppTheme.infoBlue),
-                              ),
-                          ],
+                        title: Text(
+                          '${eq.type} ${eq.capacity ?? ""} — ${eq.location ?? "Sans emplacement"}',
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                         ),
                         subtitle: Text('${eq.niveau != null ? "Niveau: ${eq.niveau} • " : ""}${eq.brand ?? ""} ${eq.manufactureYear != null ? "• ${eq.manufactureYear}" : ""}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        trailing: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            if (isChecked) ...[
-                              _statusBadge(check.status),
-                              const SizedBox(width: 2),
-                              IconButton(
-                                icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue, size: 20),
-                                onPressed: () => _showVerificationDialog(eq),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                visualDensity: VisualDensity.compact,
+                            if (isChecked && check.localPath != null)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Image.file(File(check.localPath!), width: 34, height: 34, fit: BoxFit.cover),
+                                ),
                               ),
-                            ] else
+                            if (isChecked)
+                              _statusBadge(check.status)
+                            else
                               TextButton(
                                 onPressed: () => _showVerificationDialog(eq),
                                 style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
                                 child: const Text('Vérifier', style: TextStyle(fontSize: 13)),
                               ),
+                            if (isChecked)
+                              IconButton(
+                                icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue, size: 20),
+                                tooltip: 'Modifier la vérification',
+                                onPressed: () => _showVerificationDialog(eq),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            IconButton(
+                              icon: const Icon(Icons.tune_rounded, size: 20),
+                              color: AppTheme.secondaryText,
+                              tooltip: 'Modifier l\'équipement',
+                              onPressed: () => _showAddEquipmentDialog(equipmentToEdit: eq),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              visualDensity: VisualDensity.compact,
+                            ),
                             IconButton(
                               icon: const Icon(Icons.add_a_photo_rounded, size: 18),
                               onPressed: () => _capturePhoto(eq.id),
@@ -952,7 +1239,11 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       surfaceM2: double.tryParse(_surfaceController.text),
       registreSecurite: _registreSecurite,
       activiteSite: _activiteController.text,
-      risquesSite: _risquesController.text,
+      risquesSite: jsonEncode({
+        'answers': _riskAnswers.map((k, v) => MapEntry(k, v)),
+        'decision': _interventionDecision,
+        'motif': _motifController.text,
+      }),
     );
 
     final rapport = Rapport(
@@ -1021,7 +1312,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       localDetails.putIfAbsent('controle_quinquennal_effectue', () => 'Non');
       localDetails.putIfAbsent('controle_decennal_effectue', () => 'Non');
       localDetails.putIfAbsent('date_reepreuve', () {
-        final d = DateTime.now();
+        final d = _actualDate ?? _scheduledDate;
         return DateTime(d.year + 1, d.month, d.day).toIso8601String();
       });
     } else {
@@ -1129,16 +1420,17 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     }
   }
 
-  void _showAddEquipmentDialog() async {
+  void _showAddEquipmentDialog({Equipment? equipmentToEdit}) async {
+    final isEdit = equipmentToEdit != null;
     final formKey = GlobalKey<FormState>();
-    final typeController = TextEditingController();
-    final brandController = TextEditingController();
-    final modelController = TextEditingController();
-    final locationController = TextEditingController();
-    final levelController = TextEditingController();
-    final yearController = TextEditingController();
-    final capacityController = TextEditingController();
-    Branche dialogBranche = _selectedBranche;
+    final typeController = TextEditingController(text: equipmentToEdit?.type);
+    final brandController = TextEditingController(text: equipmentToEdit?.brand);
+    final modelController = TextEditingController(text: equipmentToEdit?.model);
+    final locationController = TextEditingController(text: equipmentToEdit?.location);
+    final levelController = TextEditingController(text: equipmentToEdit?.niveau);
+    final yearController = TextEditingController(text: equipmentToEdit?.manufactureYear?.toString());
+    final capacityController = TextEditingController(text: equipmentToEdit?.capacity);
+    Branche dialogBranche = equipmentToEdit?.branche ?? _selectedBranche;
     bool dialogSaving = false;
 
     final result = await showDialog<bool>(
@@ -1149,9 +1441,9 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
           return AlertDialog(
             title: Row(
               children: [
-                Icon(Icons.add_circle_rounded, color: dialogBranche.color, size: 24),
+                Icon(isEdit ? Icons.edit_rounded : Icons.add_circle_rounded, color: dialogBranche.color, size: 24),
                 const SizedBox(width: 10),
-                const Expanded(child: Text('Ajouter un équipement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+                Expanded(child: Text(isEdit ? 'Modifier l\'équipement' : 'Ajouter un équipement', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
               ],
             ),
             content: SizedBox(
@@ -1261,7 +1553,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                   setDialogState(() => dialogSaving = true);
                   try {
                     final newEq = Equipment(
-                      id: '',
+                      id: equipmentToEdit?.id ?? '',
                       clientId: _selectedClientId!,
                       branche: dialogBranche,
                       type: typeController.text.trim(),
@@ -1272,7 +1564,11 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                       manufactureYear: int.tryParse(yearController.text.trim()),
                       capacity: capacityController.text.trim().isNotEmpty ? capacityController.text.trim() : null,
                     );
-                    await SupabaseService.instance.insertEquipment(newEq);
+                    if (isEdit) {
+                      await SupabaseService.instance.updateEquipment(equipmentToEdit!.id, newEq);
+                    } else {
+                      await SupabaseService.instance.insertEquipment(newEq);
+                    }
                     if (context.mounted) Navigator.pop(context, true);
                   } catch (e) {
                     setDialogState(() => dialogSaving = false);
@@ -1285,8 +1581,8 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                 },
                 icon: dialogSaving
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.add_rounded),
-                label: Text(dialogSaving ? 'Enregistrement…' : 'AJOUTER'),
+                    : Icon(isEdit ? Icons.save_rounded : Icons.add_rounded),
+                label: Text(dialogSaving ? 'Enregistrement…' : (isEdit ? 'MODIFIER' : 'AJOUTER')),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: dialogBranche.color,
                   foregroundColor: Colors.white,
@@ -1301,31 +1597,33 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
 
     if (result == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Équipement ajouté avec succès !', style: TextStyle(color: Colors.white)),
+        SnackBar(
+          content: Text(isEdit ? 'Équipement modifié avec succès !' : 'Équipement ajouté avec succès !', style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.green,
         ),
       );
 
-      // Ask if they want to add another one
-      final addAnother = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Équipement ajouté ✓'),
-          content: const Text('Souhaitez-vous ajouter un autre équipement ?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NON')),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: _selectedBranche.color, foregroundColor: Colors.white),
-              child: const Text('OUI, AJOUTER'),
-            ),
-          ],
-        ),
-      );
+      // Ask if they want to add another one (only when adding, not editing)
+      if (!isEdit) {
+        final addAnother = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Équipement ajouté ✓'),
+            content: const Text('Souhaitez-vous ajouter un autre équipement ?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NON')),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: _selectedBranche.color, foregroundColor: Colors.white),
+                child: const Text('OUI, AJOUTER'),
+              ),
+            ],
+          ),
+        );
 
-      if (addAnother == true) {
-        _showAddEquipmentDialog();
+        if (addAnother == true) {
+          _showAddEquipmentDialog();
+        }
       }
     }
   }
@@ -1526,7 +1824,11 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         surfaceM2: double.tryParse(_surfaceController.text),
         registreSecurite: _registreSecurite,
         activiteSite: _activiteController.text,
-        risquesSite: _risquesController.text,
+        risquesSite: jsonEncode({
+          'answers': _riskAnswers.map((k, v) => MapEntry(k, v)),
+          'decision': _interventionDecision,
+          'motif': _motifController.text,
+        }),
         arborescenceJson: _selectedType == TypeIntervention.preVisite ? jsonEncode(_arborescence.map((z) => z.toJson()).toList()) : null,
         updatedAt: DateTime.now(),
       );
@@ -1547,6 +1849,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
       // Generate standard report number
       final reportNumber = await SupabaseService.instance.getNextReportNumber(_selectedBranche, date: _scheduledDate);
 
+      // Encode signatures as base64 JSON so they can be retrieved when viewing past reports
+      final signaturesJson = jsonEncode({
+        'client': base64Encode(_signatureClient!),
+        'tech': base64Encode(_signatureTechnicien!),
+      });
+
       final rapport = Rapport(
         rapportId: '',
         numeroRapport: reportNumber,
@@ -1559,6 +1867,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
         branche: _selectedBranche,
         equipmentChecks: _equipmentChecks,
         reportCreatedAt: _scheduledDate,
+        signatureUrl: signaturesJson,
       );
 
       final pdfFile = await PdfService.generateInterventionReport(

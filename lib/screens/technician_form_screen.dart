@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/supabase_service.dart';
+import '../utils/password_helper.dart';
 
 class TechnicianFormScreen extends StatefulWidget {
   final Technician? technician;
@@ -29,7 +30,8 @@ class _TechnicianFormScreenState extends State<TechnicianFormScreen> {
     _nomController = TextEditingController(text: t?.nomComplet ?? '');
     _emailController = TextEditingController(text: t?.email ?? '');
     _telController = TextEditingController(text: t?.telephone ?? '');
-    _passwordController = TextEditingController(text: t?.password ?? '');
+    // Ne jamais pré-remplir le mot de passe (on ne ré-affiche jamais le hash)
+    _passwordController = TextEditingController();
     _role = t?.role ?? 'technicien';
     _isActif = t?.actif ?? true;
   }
@@ -48,11 +50,26 @@ class _TechnicianFormScreenState extends State<TechnicianFormScreen> {
 
     setState(() => _isLoading = true);
 
+    final email = _emailController.text.trim();
+    final rawPassword = _passwordController.text;
+
+    // Déterminer le hash à stocker :
+    // - Nouveau technicien : on hash le mot de passe saisi
+    // - Modification sans nouveau mdp : on conserve le hash existant
+    // - Modification avec nouveau mdp : on hash le nouveau mdp
+    String? passwordToStore;
+    if (rawPassword.isNotEmpty) {
+      passwordToStore = PasswordHelper.hash(rawPassword, email);
+    } else if (widget.technician != null) {
+      // Conserver l'ancien hash (inchangé)
+      passwordToStore = widget.technician!.password;
+    }
+
     try {
       final tech = Technician(
         id: widget.technician?.id ?? '',
-        email: _emailController.text.trim(),
-        password: _passwordController.text.isNotEmpty ? _passwordController.text : null,
+        email: email,
+        password: passwordToStore,
         nomComplet: _nomController.text.trim(),
         telephone: _telController.text.trim(),
         role: _role,
@@ -118,15 +135,9 @@ class _TechnicianFormScreenState extends State<TechnicianFormScreen> {
                     validator: (v) => v!.isEmpty ? 'Requis' : null,
                   ),
                   const SizedBox(height: 16),
-                  TextFormField(
+                  _PasswordField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: 'Mot de passe *',
-                      prefixIcon: Icon(Icons.lock_outline),
-                      helperText: 'Saisissez un nouveau mot de passe pour le définir',
-                    ),
-                    obscureText: true,
-                    validator: (v) => widget.technician == null && v!.isEmpty ? 'Requis pour un nouveau compte' : null,
+                    isEdit: widget.technician != null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -160,7 +171,7 @@ class _TechnicianFormScreenState extends State<TechnicianFormScreen> {
                   const SizedBox(height: 32),
                   ElevatedButton(
                     onPressed: _isLoading ? null : _save,
-                    child: _isLoading 
+                    child: _isLoading
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Text('ENREGISTRER'),
                   ),
@@ -170,6 +181,51 @@ class _TechnicianFormScreenState extends State<TechnicianFormScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Champ mot de passe avec toggle visibilité et indicateur de force
+class _PasswordField extends StatefulWidget {
+  final TextEditingController controller;
+  final bool isEdit;
+
+  const _PasswordField({required this.controller, required this.isEdit});
+
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  bool _obscure = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: widget.controller,
+      obscureText: _obscure,
+      decoration: InputDecoration(
+        labelText: widget.isEdit ? 'Nouveau mot de passe' : 'Mot de passe *',
+        prefixIcon: const Icon(Icons.lock_outline),
+        helperText: widget.isEdit
+            ? 'Laisser vide pour conserver le mot de passe actuel'
+            : 'Minimum 6 caractères',
+        helperMaxLines: 2,
+        suffixIcon: IconButton(
+          icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+          onPressed: () => setState(() => _obscure = !_obscure),
+          tooltip: _obscure ? 'Afficher' : 'Masquer',
+        ),
+      ),
+      validator: (v) {
+        if (!widget.isEdit && (v == null || v.isEmpty)) {
+          return 'Requis pour un nouveau compte';
+        }
+        if (v != null && v.isNotEmpty && v.length < 6) {
+          return 'Minimum 6 caractères';
+        }
+        return null;
+      },
     );
   }
 }

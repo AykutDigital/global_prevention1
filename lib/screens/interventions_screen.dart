@@ -378,6 +378,16 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                     ),
                     child: const Text('Rapport', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
+                  TextButton.icon(
+                    onPressed: () => _confirmDeleteIntervention(intervention),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
+                    label: const Text('Supprimer', style: TextStyle(fontSize: 12, color: Colors.red)),
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.red.withOpacity(0.05),
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -385,6 +395,55 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteIntervention(Intervention intervention) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 40),
+        title: const Text('Supprimer l\'intervention ?'),
+        content: const Text(
+          'Cette action supprimera définitivement l\'intervention et le rapport associé. Cette opération est irréversible.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ANNULER'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('SUPPRIMER'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        // Supprimer le rapport lié s'il existe
+        final rapport = await SupabaseService.instance.getRapportByInterventionId(intervention.interventionId);
+        if (rapport != null) {
+          await SupabaseService.instance.deleteRapport(rapport.rapportId);
+        }
+        // Supprimer l'intervention
+        await SupabaseService.instance.deleteIntervention(intervention.interventionId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Intervention supprimée.'), backgroundColor: Colors.green),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildStatusBadge(StatutIntervention statut) {
