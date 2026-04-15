@@ -66,25 +66,28 @@ class PdfService {
             pw.SizedBox(height: 6),
 
             // Ligne 2 : Titre + N° centré (en dessous de la date et du logo)
-            pw.Center(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
-                children: [
-                  pw.Text('RAPPORT DE VÉRIFICATION', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
-                  pw.SizedBox(height: 8),
-                  pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.black)),
-                    child: pw.Row(
-                      children: [
-                        pw.Text('N°', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                        pw.SizedBox(width: 20),
-                        pw.Text(rapport.numeroRapport, style: const pw.TextStyle(fontSize: 11)),
-                      ],
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text('RAPPORT DE VÉRIFICATION', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+                    pw.SizedBox(height: 8),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.black)),
+                      child: pw.Row(
+                        children: [
+                          pw.Text('N°', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                          pw.SizedBox(width: 20),
+                          pw.Text(rapport.numeroRapport, style: const pw.TextStyle(fontSize: 11)),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ),
             pw.SizedBox(height: 15),
 
