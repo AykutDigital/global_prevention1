@@ -423,35 +423,73 @@ class PdfService {
 
                 // Logo vertical juste à gauche du carré adresse
                 if (logo != null) ...[
+                  pw.SizedBox(width: 8),
                   pw.Container(
-                    width: 20,
-                    height: 80,
+                    width: 24,
+                    height: 100,
                     child: pw.Transform.rotate(
                       angle: -pi / 2,
                       child: pw.Image(logo, fit: pw.BoxFit.contain),
                     ),
                   ),
-                  pw.SizedBox(width: 6),
+                  pw.SizedBox(width: 10),
                 ],
 
-                // Carré adresse (DROITE)
+                // Carré adresse (DROITE) avec icônes
                 pw.Container(
-                  padding: const pw.EdgeInsets.all(8),
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
                   ),
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(
-                        intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                      // Adresse
+                      pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('● ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
+                          pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text('20 Av. Des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                              pw.Text('Espace Mi-Plaine 1er Étage', style: const pw.TextStyle(fontSize: 8)),
+                              pw.Text('69680 Chassieu', style: const pw.TextStyle(fontSize: 8)),
+                            ],
+                          ),
+                        ],
                       ),
-                      pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
+                      pw.SizedBox(height: 4),
+                      // Téléphone
+                      pw.Row(
+                        children: [
+                          pw.Text('✆ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
+                          pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                      pw.SizedBox(height: 2),
+                      // Site web
+                      pw.Row(
+                        children: [
+                          pw.Text('✦ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
+                          pw.Text(
+                            intervention.branche == Branche.veriflamme ? 'veriflamme.fr' : 'sauvdefib.fr',
+                            style: const pw.TextStyle(fontSize: 8),
+                          ),
+                        ],
+                      ),
+                      pw.SizedBox(height: 2),
+                      // Email
+                      pw.Row(
+                        children: [
+                          pw.Text('✉ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
+                          pw.Text(
+                            intervention.branche == Branche.veriflamme ? 'contact@veriflamme.fr' : 'contact@sauvdefib.fr',
+                            style: const pw.TextStyle(fontSize: 8),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
