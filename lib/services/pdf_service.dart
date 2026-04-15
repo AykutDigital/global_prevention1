@@ -51,40 +51,40 @@ class PdfService {
         ),
         build: (pw.Context context) {
           return [
-            // Header : Date (gauche) | Titre (centre) | Logo (droite)
+            // Ligne 1 : Date (gauche) + Logo (droite) — légèrement plus haut que le titre
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                // Date en haut à gauche
                 pw.Text('Date : $dateStr', style: const pw.TextStyle(fontSize: 10)),
-
-                // Titre + N° centré
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.center,
-                  children: [
-                    pw.Text('RAPPORT DE VÉRIFICATION', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
-                    pw.SizedBox(height: 10),
-                    pw.Container(
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.black)),
-                      child: pw.Row(
-                        children: [
-                          pw.Text('N°', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                          pw.SizedBox(width: 20),
-                          pw.Text(rapport.numeroRapport, style: const pw.TextStyle(fontSize: 11)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-                // Logo en haut à droite
                 if (logo != null)
                   pw.Container(width: 130, child: pw.Image(logo))
                 else
                   pw.Text('GLOBAL PREVENTION', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: primaryColor)),
               ],
+            ),
+            pw.SizedBox(height: 6),
+
+            // Ligne 2 : Titre + N° centré (en dessous de la date et du logo)
+            pw.Center(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Text('RAPPORT DE VÉRIFICATION', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+                  pw.SizedBox(height: 8),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.black)),
+                    child: pw.Row(
+                      children: [
+                        pw.Text('N°', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                        pw.SizedBox(width: 20),
+                        pw.Text(rapport.numeroRapport, style: const pw.TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             pw.SizedBox(height: 15),
 
@@ -421,77 +421,69 @@ class PdfService {
                   ),
                 ),
 
-                // Logo vertical juste à gauche du carré adresse
+                // Logo vertical grand, juste à gauche du badge adresse
                 if (logo != null) ...[
-                  pw.SizedBox(width: 8),
-                  pw.Container(
-                    width: 24,
-                    height: 100,
-                    child: pw.Transform.rotate(
-                      angle: -pi / 2,
-                      child: pw.Image(logo, fit: pw.BoxFit.contain),
+                  pw.SizedBox(width: 4),
+                  pw.Transform.rotate(
+                    angle: -pi / 2,
+                    child: pw.Container(
+                      width: 130,
+                      child: pw.Image(logo, fit: pw.BoxFit.fitWidth),
                     ),
                   ),
-                  pw.SizedBox(width: 10),
+                  pw.SizedBox(width: 14),
                 ],
 
-                // Carré adresse (DROITE) avec icônes
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      // Adresse
-                      pw.Row(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text('● ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Text('20 Av. Des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                              pw.Text('Espace Mi-Plaine 1er Étage', style: const pw.TextStyle(fontSize: 8)),
-                              pw.Text('69680 Chassieu', style: const pw.TextStyle(fontSize: 8)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      pw.SizedBox(height: 4),
-                      // Téléphone
-                      pw.Row(
-                        children: [
-                          pw.Text('✆ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
-                          pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                        ],
-                      ),
-                      pw.SizedBox(height: 2),
-                      // Site web
-                      pw.Row(
-                        children: [
-                          pw.Text('✦ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
-                          pw.Text(
-                            intervention.branche == Branche.veriflamme ? 'veriflamme.fr' : 'sauvdefib.fr',
-                            style: const pw.TextStyle(fontSize: 8),
-                          ),
-                        ],
-                      ),
-                      pw.SizedBox(height: 2),
-                      // Email
-                      pw.Row(
-                        children: [
-                          pw.Text('✉ ', style: pw.TextStyle(fontSize: 8, color: primaryColor)),
-                          pw.Text(
-                            intervention.branche == Branche.veriflamme ? 'contact@veriflamme.fr' : 'contact@sauvdefib.fr',
-                            style: const pw.TextStyle(fontSize: 8),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                // Badge adresse sans bordure, avec icônes colorées
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    // Adresse
+                    pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('◉  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text('20 Av. Des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('Espace Mi-Plaine 1er Étage', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('69680 Chassieu', style: const pw.TextStyle(fontSize: 8)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 6),
+                    // Téléphone
+                    pw.Row(
+                      children: [
+                        pw.Text('✆  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 3),
+                    // Site web
+                    pw.Row(
+                      children: [
+                        pw.Text('✱  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text(
+                          intervention.branche == Branche.veriflamme ? 'veriflamme.fr' : 'sauvdefib.fr',
+                          style: const pw.TextStyle(fontSize: 8),
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 3),
+                    // Email
+                    pw.Row(
+                      children: [
+                        pw.Text('✉  ', style: pw.TextStyle(fontSize: 9, color: primaryColor)),
+                        pw.Text(
+                          intervention.branche == Branche.veriflamme ? 'contact@veriflamme.fr' : 'contact@sauvdefib.fr',
+                          style: const pw.TextStyle(fontSize: 8),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
