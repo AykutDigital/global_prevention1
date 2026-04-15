@@ -552,7 +552,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 leading: Container(
                   width: 40,
                   height: 40,
@@ -561,14 +561,36 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    e.type == 'Extincteur' ? Icons.fire_extinguisher : Icons.medical_services, 
+                    e.type.toLowerCase().contains('extincteur') ? Icons.fire_extinguisher : Icons.medical_services,
                     color: e.branche == Branche.veriflamme ? AppTheme.veriflammeRed : AppTheme.sauvdefibGreen,
-                    size: 20
+                    size: 20,
                   ),
                 ),
-                title: Text('${e.type} ${e.brand ?? ""}'),
-                subtitle: Text('Niveau: ${e.niveau ?? "RDC"} • Emplacement: ${e.location ?? "Non spécifié"}'),
-                trailing: const Icon(Icons.chevron_right_rounded),
+                title: Text('${e.type} ${e.capacity ?? ""}'.trim(), style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  [
+                    if (e.brand != null && e.brand!.isNotEmpty) e.brand!,
+                    if (e.niveau != null && e.niveau!.isNotEmpty) 'Niv. ${e.niveau}',
+                    if (e.location != null && e.location!.isNotEmpty) e.location!,
+                  ].join(' • '),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_rounded, size: 20),
+                      color: AppTheme.primary,
+                      tooltip: 'Modifier',
+                      onPressed: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                      color: Colors.red,
+                      tooltip: 'Supprimer',
+                      onPressed: () => _confirmDeleteEquipment(context, e),
+                    ),
+                  ],
+                ),
                 onTap: () => _showAddEquipmentDialog(context, clientId, equipmentToEdit: e),
               ),
             );
@@ -576,6 +598,38 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         );
       },
     );
+  }
+
+  Future<void> _confirmDeleteEquipment(BuildContext context, Equipment e) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer l\'équipement'),
+        content: Text('Supprimer "${e.type} ${e.capacity ?? ""}" ? Cette action est irréversible.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await SupabaseService.instance.deleteEquipment(e.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Équipement supprimé'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (err) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $err'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   void _showAddEquipmentDialog(BuildContext context, String clientId, {Equipment? equipmentToEdit}) {
@@ -846,9 +900,7 @@ class _EquipmentFormDialogState extends State<_EquipmentFormDialog> {
       if (e == null) {
         await SupabaseService.instance.insertEquipment(newEq);
       } else {
-        // We might need an updateEquipment method if we want to edit
-        // For now, let's assume insertEquipment handles upsert or we just add the method
-        await SupabaseService.instance.insertEquipment(newEq); // Assuming upsert logic
+        await SupabaseService.instance.updateEquipment(e.id, newEq);
       }
 
       if (mounted) {

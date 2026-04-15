@@ -104,6 +104,14 @@ class SupabaseService {
     await _client.from('equipment').insert(equipment.toJson());
   }
 
+  Future<void> updateEquipment(String id, Equipment equipment) async {
+    await _client.from('equipment').update(equipment.toJson()).eq('id', id);
+  }
+
+  Future<void> deleteEquipment(String id) async {
+    await _client.from('equipment').delete().eq('id', id);
+  }
+
   // ─── INTERVENTIONS ──────────────────────────────────────────────────
 
   Stream<List<Intervention>> get interventionsStream {
