@@ -372,11 +372,7 @@ class PdfService {
                           pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                           pw.SizedBox(height: 8),
                           if (signatureClient != null)
-                            pw.Container(
-                              width: 130,
-                              height: 60,
-                              child: pw.Image(pw.MemoryImage(signatureClient!)),
-                            )
+                            pw.Image(pw.MemoryImage(signatureClient!), width: 130, height: 60, fit: pw.BoxFit.contain)
                           else if (isPreview)
                             pw.Container(
                               width: 130,
@@ -385,9 +381,7 @@ class PdfService {
                                 border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
                                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
                               ),
-                              child: pw.Center(
-                                child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
-                              ),
+                              child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
                             ),
                         ],
                       ),
@@ -399,11 +393,7 @@ class PdfService {
                           pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                           pw.SizedBox(height: 8),
                           if (signatureTechnicien != null)
-                            pw.Container(
-                              width: 130,
-                              height: 60,
-                              child: pw.Image(pw.MemoryImage(signatureTechnicien)),
-                            )
+                            pw.Image(pw.MemoryImage(signatureTechnicien), width: 130, height: 60, fit: pw.BoxFit.contain)
                           else if (isPreview)
                             pw.Container(
                               width: 130,
@@ -412,9 +402,7 @@ class PdfService {
                                 border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
                                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
                               ),
-                              child: pw.Center(
-                                child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
-                              ),
+                              child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
                             ),
                           pw.SizedBox(height: 4),
                           pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
@@ -429,10 +417,7 @@ class PdfService {
                   pw.SizedBox(width: 4),
                   pw.Transform.rotate(
                     angle: -pi / 2,
-                    child: pw.Container(
-                      width: 65,
-                      child: pw.Image(logo, fit: pw.BoxFit.fitWidth),
-                    ),
+                    child: pw.Image(logo, width: 65, height: 22, fit: pw.BoxFit.contain),
                   ),
                   pw.SizedBox(width: 14),
                 ],
