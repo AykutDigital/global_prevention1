@@ -373,26 +373,29 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   static const List<Map<String, dynamic>> _riskSections = [
     {
       'id': 's1', 'emoji': '🏢', 'title': '1. Accès au site',
+      'subtitle': null,
       'warning': 'Si NON → ne pas intervenir / contacter le responsable',
       'questions': [
         {'id': 'q1_1', 'text': 'Le site est-il accessible en toute sécurité ?'},
         {'id': 'q1_2', 'text': 'Les accès (parking, entrée) sont-ils dégagés et sans danger ?'},
         {'id': 'q1_3', 'text': 'Le technicien a-t-il été accueilli / informé des consignes sécurité ?'},
-        {'id': 'q1_4', 'text': 'Un plan de prévention ou protocole de sécurité est-il nécessaire ?'},
+        {'id': 'q1_4', 'text': 'Un plan de prévention ou protocole de sécurité est-il requis et disponible ?'},
       ],
     },
     {
       'id': 's2', 'emoji': '🚶', 'title': '2. Circulation et déplacements',
+      'subtitle': null,
       'warning': null,
       'questions': [
         {'id': 'q2_1', 'text': 'Les zones de circulation sont-elles dégagées ?'},
         {'id': 'q2_2', 'text': 'Le sol est-il en bon état (pas glissant, pas encombré) ?'},
-        {'id': 'q2_3', 'text': 'Y a-t-il un risque de chute de plain-pied ?'},
-        {'id': 'q2_4', 'text': 'Y a-t-il un risque de chute de hauteur (escabeau nécessaire) ?'},
+        {'id': 'q2_3', 'text': 'Le risque de chute de plain-pied est-il maîtrisé ?'},
+        {'id': 'q2_4', 'text': 'Si escabeau nécessaire : est-il disponible, stable et en bon état ?'},
       ],
     },
     {
       'id': 's3', 'emoji': '⚡', 'title': '3. Risques électriques',
+      'subtitle': null,
       'warning': 'Si doute → ne pas intervenir',
       'questions': [
         {'id': 'q3_1', 'text': 'L\'intervention se fait-elle à proximité d\'installations électriques ?'},
@@ -402,15 +405,17 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     },
     {
       'id': 's4', 'emoji': '🧪', 'title': '4. Risques chimiques / atmosphère',
+      'subtitle': null,
       'warning': null,
       'questions': [
-        {'id': 'q4_1', 'text': 'Y a-t-il présence de produits dangereux (poussières, vapeurs, produits chimiques) ?'},
+        {'id': 'q4_1', 'text': 'La zone est-elle exempte de produits dangereux (poussières, vapeurs, produits chimiques) ?'},
         {'id': 'q4_2', 'text': 'La zone est-elle correctement ventilée ?'},
         {'id': 'q4_3', 'text': 'Le technicien dispose-t-il des EPI adaptés ?'},
       ],
     },
     {
       'id': 's5', 'emoji': '💥', 'title': '5. Risques liés aux extincteurs (pression)',
+      'subtitle': null,
       'warning': '⚠️ Interdiction de démonter un extincteur sous pression\nEn cas d\'anomalie → mise à l\'écart + signalement',
       'questions': [
         {'id': 'q5_1', 'text': 'Les extincteurs sont-ils en bon état apparent (pas de choc, corrosion) ?'},
@@ -420,33 +425,37 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     },
     {
       'id': 's6', 'emoji': '🏋️', 'title': '6. Manutention',
+      'subtitle': null,
       'warning': null,
       'questions': [
         {'id': 'q6_1', 'text': 'Les extincteurs sont-ils facilement accessibles ?'},
-        {'id': 'q6_2', 'text': 'Le poids est-il adapté à une manutention manuelle ?'},
-        {'id': 'q6_3', 'text': 'Un moyen de manutention est-il disponible (diable, chariot) ?'},
-        {'id': 'q6_4', 'text': 'Les gestes et postures peuvent-ils être respectés ?'},
+        {'id': 'q6_2', 'text': 'Le poids est-il adapté à une manutention manuelle (< 25 kg) ?'},
+        {'id': 'q6_3', 'text': 'Un moyen de manutention est-il disponible si nécessaire (diable, chariot) ?'},
+        {'id': 'q6_4', 'text': 'Les gestes et postures recommandés peuvent-ils être respectés ?'},
       ],
     },
     {
-      'id': 's7', 'emoji': '🏢', 'title': '7. Environnement de travail',
+      'id': 's7', 'emoji': '🏭', 'title': '7. Environnement de travail',
+      'subtitle': null,
       'warning': null,
       'questions': [
         {'id': 'q7_1', 'text': 'La zone de travail est-elle suffisamment éclairée ?'},
-        {'id': 'q7_2', 'text': 'Y a-t-il des obstacles ou zones dangereuses à proximité ?'},
-        {'id': 'q7_3', 'text': 'Le technicien est-il exposé à du bruit, chaleur ou froid ?'},
+        {'id': 'q7_2', 'text': 'La zone est-elle exempte d\'obstacles et de zones dangereuses à proximité ?'},
+        {'id': 'q7_3', 'text': 'Les conditions thermiques et sonores sont-elles acceptables pour intervenir ?'},
       ],
     },
     {
       'id': 's8', 'emoji': '🚗', 'title': '8. Risques liés au déplacement',
+      'subtitle': null,
       'warning': null,
       'questions': [
-        {'id': 'q8_1', 'text': 'Le stationnement est-il sécurisé ?'},
-        {'id': 'q8_2', 'text': 'Le matériel peut-il être transporté sans danger ?'},
+        {'id': 'q8_1', 'text': 'Le stationnement sur site est-il sécurisé ?'},
+        {'id': 'q8_2', 'text': 'Le matériel peut-il être transporté et arrimé sans danger ?'},
       ],
     },
     {
-      'id': 's9', 'emoji': '🧑‍🔧', 'title': '9. Équipements de protection individuelle',
+      'id': 's9', 'emoji': '🧑‍🔧', 'title': '9. Équipements de protection',
+      'subtitle': 'Le technicien porte-t-il ses EPI ?',
       'warning': null,
       'questions': [
         {'id': 'q9_1', 'text': 'Chaussures de sécurité'},
@@ -457,11 +466,12 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     },
     {
       'id': 's10', 'emoji': '🧠', 'title': '10. Organisation et sécurité globale',
+      'subtitle': null,
       'warning': null,
       'questions': [
-        {'id': 'q10_1', 'text': 'Le technicien travaille-t-il seul ?'},
-        {'id': 'q10_2', 'text': 'Dispose-t-il d\'un moyen de communication ?'},
-        {'id': 'q10_3', 'text': 'Les consignes d\'urgence sont-elles connues ?'},
+        {'id': 'q10_1', 'text': 'Si travail isolé : le dispositif de travailleur isolé est-il en place ?'},
+        {'id': 'q10_2', 'text': 'Le technicien dispose-t-il d\'un moyen de communication fonctionnel ?'},
+        {'id': 'q10_3', 'text': 'Les consignes d\'urgence et d\'évacuation du site sont-elles connues ?'},
       ],
     },
   ];
@@ -559,6 +569,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
   Widget _buildRiskSection(Map<String, dynamic> section) {
     final questions = section['questions'] as List;
     final warning = section['warning'] as String?;
+    final subtitle = section['subtitle'] as String?;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -574,6 +585,13 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             )),
           ]),
+          if (subtitle != null) ...[
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.only(left: 26),
+              child: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            ),
+          ],
           const SizedBox(height: 8),
 
           // Questions
