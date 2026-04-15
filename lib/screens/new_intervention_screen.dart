@@ -752,7 +752,18 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                             else
                               TextButton(onPressed: () => _showVerificationDialog(eq), child: const Text('Vérifier')),
                             if (isChecked)
-                              IconButton(icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue), onPressed: () => _showVerificationDialog(eq)),
+                              IconButton(
+                                icon: const Icon(Icons.edit_note_rounded, color: AppTheme.infoBlue),
+                                tooltip: 'Modifier la vérification',
+                                onPressed: () => _showVerificationDialog(eq),
+                              ),
+                            // Bouton modifier les infos de l'extincteur
+                            IconButton(
+                              icon: const Icon(Icons.tune_rounded, size: 20),
+                              color: AppTheme.secondaryText,
+                              tooltip: 'Modifier l\'équipement',
+                              onPressed: () => _showAddEquipmentDialog(equipmentToEdit: eq),
+                            ),
                             IconButton(icon: const Icon(Icons.add_a_photo_rounded, size: 20), onPressed: () => _capturePhoto(eq.id)),
                           ],
                         ),
@@ -1101,16 +1112,17 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
     }
   }
 
-  void _showAddEquipmentDialog() async {
+  void _showAddEquipmentDialog({Equipment? equipmentToEdit}) async {
+    final isEdit = equipmentToEdit != null;
     final formKey = GlobalKey<FormState>();
-    final typeController = TextEditingController();
-    final brandController = TextEditingController();
-    final modelController = TextEditingController();
-    final locationController = TextEditingController();
-    final levelController = TextEditingController();
-    final yearController = TextEditingController();
-    final capacityController = TextEditingController();
-    Branche dialogBranche = _selectedBranche;
+    final typeController = TextEditingController(text: equipmentToEdit?.type);
+    final brandController = TextEditingController(text: equipmentToEdit?.brand);
+    final modelController = TextEditingController(text: equipmentToEdit?.model);
+    final locationController = TextEditingController(text: equipmentToEdit?.location);
+    final levelController = TextEditingController(text: equipmentToEdit?.niveau);
+    final yearController = TextEditingController(text: equipmentToEdit?.manufactureYear?.toString());
+    final capacityController = TextEditingController(text: equipmentToEdit?.capacity);
+    Branche dialogBranche = equipmentToEdit?.branche ?? _selectedBranche;
     bool dialogSaving = false;
 
     final result = await showDialog<bool>(
@@ -1121,9 +1133,9 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
           return AlertDialog(
             title: Row(
               children: [
-                Icon(Icons.add_circle_rounded, color: dialogBranche.color, size: 24),
+                Icon(isEdit ? Icons.edit_rounded : Icons.add_circle_rounded, color: dialogBranche.color, size: 24),
                 const SizedBox(width: 10),
-                const Expanded(child: Text('Ajouter un équipement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+                Expanded(child: Text(isEdit ? 'Modifier l\'équipement' : 'Ajouter un équipement', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
               ],
             ),
             content: SizedBox(
@@ -1233,7 +1245,7 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                   setDialogState(() => dialogSaving = true);
                   try {
                     final newEq = Equipment(
-                      id: '',
+                      id: equipmentToEdit?.id ?? '',
                       clientId: _selectedClientId!,
                       branche: dialogBranche,
                       type: typeController.text.trim(),
@@ -1244,7 +1256,11 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                       manufactureYear: int.tryParse(yearController.text.trim()),
                       capacity: capacityController.text.trim().isNotEmpty ? capacityController.text.trim() : null,
                     );
-                    await SupabaseService.instance.insertEquipment(newEq);
+                    if (isEdit) {
+                      await SupabaseService.instance.updateEquipment(equipmentToEdit!.id, newEq);
+                    } else {
+                      await SupabaseService.instance.insertEquipment(newEq);
+                    }
                     if (context.mounted) Navigator.pop(context, true);
                   } catch (e) {
                     setDialogState(() => dialogSaving = false);
@@ -1257,8 +1273,8 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                 },
                 icon: dialogSaving
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.add_rounded),
-                label: Text(dialogSaving ? 'Enregistrement…' : 'AJOUTER'),
+                    : Icon(isEdit ? Icons.save_rounded : Icons.add_rounded),
+                label: Text(dialogSaving ? 'Enregistrement…' : (isEdit ? 'MODIFIER' : 'AJOUTER')),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: dialogBranche.color,
                   foregroundColor: Colors.white,

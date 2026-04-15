@@ -421,13 +421,13 @@ class PdfService {
                   ),
                 ),
 
-                // Logo vertical grand, juste à gauche du badge adresse
+                // Logo vertical, juste à gauche du badge adresse
                 if (logo != null) ...[
                   pw.SizedBox(width: 4),
                   pw.Transform.rotate(
                     angle: -pi / 2,
                     child: pw.Container(
-                      width: 130,
+                      width: 65,
                       child: pw.Image(logo, fit: pw.BoxFit.fitWidth),
                     ),
                   ),
