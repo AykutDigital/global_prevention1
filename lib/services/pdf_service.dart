@@ -352,95 +352,109 @@ class PdfService {
                 ),
               ),
 
-            // Footer / Signatures côte à côte
+            // Ligne unique : [Signatures gauche] [Logo vertical] [Carré adresse] — alignés sur la même ligne
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-                // Signature client (gauche)
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.SizedBox(height: 8),
-                    if (signatureClient != null)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        child: pw.Image(pw.MemoryImage(signatureClient!)),
-                      )
-                    else if (isPreview)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                        ),
-                        child: pw.Center(
-                          child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
-                        ),
+
+                // GAUCHE (étendu) : signature client + signature technicien côte à côte
+                pw.Expanded(
+                  child: pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      // Signature client
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('SIGNATURE DU CLIENT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                          pw.SizedBox(height: 8),
+                          if (signatureClient != null)
+                            pw.Container(
+                              width: 130,
+                              height: 60,
+                              child: pw.Image(pw.MemoryImage(signatureClient!)),
+                            )
+                          else if (isPreview)
+                            pw.Container(
+                              width: 130,
+                              height: 60,
+                              decoration: pw.BoxDecoration(
+                                border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
+                                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                              ),
+                              child: pw.Center(
+                                child: pw.Text('Signature client', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400)),
+                              ),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
-
-                // Signature technicien (droite)
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
-                  children: [
-                    pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                    pw.SizedBox(height: 8),
-                    if (signatureTechnicien != null)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        child: pw.Image(pw.MemoryImage(signatureTechnicien)),
-                      )
-                    else if (isPreview)
-                      pw.Container(
-                        width: 150,
-                        height: 60,
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                        ),
-                        child: pw.Center(
-                          child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
-                        ),
+                      pw.SizedBox(width: 16),
+                      // Signature technicien
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('SIGNATURE DU TECHNICIEN', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                          pw.SizedBox(height: 8),
+                          if (signatureTechnicien != null)
+                            pw.Container(
+                              width: 130,
+                              height: 60,
+                              child: pw.Image(pw.MemoryImage(signatureTechnicien)),
+                            )
+                          else if (isPreview)
+                            pw.Container(
+                              width: 130,
+                              height: 60,
+                              decoration: pw.BoxDecoration(
+                                border: pw.Border.all(color: PdfColors.grey300, style: pw.BorderStyle.dashed),
+                                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                              ),
+                              child: pw.Center(
+                                child: pw.Text('Signature\ntechnicien', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey400), textAlign: pw.TextAlign.center),
+                              ),
+                            ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
+                        ],
                       ),
-                    pw.SizedBox(height: 4),
-                    pw.Text(intervention.technicienNom, style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-              ],
-            ),
-
-            pw.SizedBox(height: 15),
-
-            // Barre de pied de page : infos société (gauche) + logo vertical (droite)
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
-              children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-                    ),
-                    pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-                // Logo vertical (pivoté 90° sens anti-horaire)
-                if (logo != null)
-                  pw.Transform.rotate(
-                    angle: -pi / 2,
-                    child: pw.Container(width: 80, child: pw.Image(logo)),
+                    ],
                   ),
+                ),
+
+                // Logo vertical juste à gauche du carré adresse
+                if (logo != null) ...[
+                  pw.Container(
+                    width: 20,
+                    height: 80,
+                    child: pw.Transform.rotate(
+                      angle: -pi / 2,
+                      child: pw.Image(logo, fit: pw.BoxFit.contain),
+                    ),
+                  ),
+                  pw.SizedBox(width: 6),
+                ],
+
+                // Carré adresse (DROITE)
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        intervention.branche == Branche.veriflamme ? 'Veriflamme' : 'Global Prevention',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                      ),
+                      pw.Text('20 Avenue des Frères Montgolfier', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('69680 CHASSIEU', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('04 37 54 55 99', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('SIRET : 999 040 108 00014', style: const pw.TextStyle(fontSize: 8)),
+                    ],
+                  ),
+                ),
               ],
             ),
 
