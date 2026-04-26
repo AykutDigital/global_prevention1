@@ -200,11 +200,34 @@ class _NewInterventionScreenState extends State<NewInterventionScreen> {
                   technicians: _technicians,
                   selectedClientId: _selectedClientId,
                   onTechnicianChanged: (v) => setState(() => _selectedTechnician = v),
-                  onClientSelected: (client) => setState(() {
-                    _selectedClientId = client.clientId;
-                    _selectedClient = client;
-                    _activiteController.text = client.activite ?? '';
-                  }),
+                  onClientSelected: (client) async {
+                    setState(() {
+                      _selectedClientId = client.clientId;
+                      _selectedClient = client;
+                      _activiteController.text = client.activite ?? '';
+                    });
+                    // Fetch equipments from nodes for the report
+                    try {
+                      final nodes = await SupabaseService.instance.rawClient
+                          .from('nodes')
+                          .select()
+                          .eq('client_id', client.clientId)
+                          .eq('type', 'equipment');
+                      if (mounted) {
+                        setState(() {
+                          _allEquipments = (nodes as List).map((n) => Equipment(
+                            id: n['id'],
+                            clientId: n['client_id'],
+                            branche: _selectedBranche,
+                            type: n['category'] ?? 'Équipement',
+                            location: n['label'],
+                          )).toList();
+                        });
+                      }
+                    } catch (e) {
+                      print('Erreur fetch equipment nodes: $e');
+                    }
+                  },
                 ),
               ),
               // Step 2: Branche & Type

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:async/async.dart';
 import '../models/models.dart';
 import '../utils/password_helper.dart';
 import 'local_db_service.dart';
@@ -17,6 +18,8 @@ class SupabaseService {
   SupabaseClient get rawClient => _client;
 
   Technician? currentTechnician;
+  final _nodesUpdateController = StreamController<void>.broadcast();
+  void notifyNodesChanged() => _nodesUpdateController.add(null);
 
   Future<bool> tryAutoLogin() async {
     try {
@@ -550,13 +553,51 @@ class SupabaseService {
 
   // ─── ARBORESCENCE ──────────────────────────────────────────────────
 
-  Stream<List<Node>> nodesStream(String clientId) {
-    return _client
-        .from('nodes')
-        .stream(primaryKey: ['id'])
-        .eq('client_id', clientId)
-        .order('label', ascending: true)
-        .map((data) => data.map((json) => Node.fromJson(json)).toList());
+  Stream<List<Node>> nodesStream(String clientId) async* {
+    final db = await LocalDbService.instance.database;
+    
+    // Function to fetch and merge current state
+    Future<List<Node>> fetchMerged(List<Map<String, dynamic>> remoteNodes) async {
+      final Map<String, Node> merged = {};
+      final allLocal = await db.query('local_nodes', where: 'client_id = ?', whereArgs: [clientId]);
+      for (var json in allLocal) {
+        final node = Node.fromJson(_fixMetadata(json));
+        if (node.syncStatus != 'pending_delete') merged[node.id] = node;
+      }
+      for (var json in remoteNodes) {
+        final node = Node.fromJson(json);
+        if (!merged.containsKey(node.id) || merged[node.id]!.syncStatus == 'synced') merged[node.id] = node;
+      }
+      return merged.values.toList()..sort((a, b) => a.label.compareTo(b.label));
+    }
+
+    // 1. Initial yield
+    final initialLocal = await db.query('local_nodes', where: 'client_id = ?', whereArgs: [clientId]);
+    yield initialLocal.map((json) => Node.fromJson(_fixMetadata(json))).toList()..sort((a, b) => a.label.compareTo(b.label));
+
+    // 2. Listen to both Supabase and Local updates
+    final remoteStream = _client.from('nodes').stream(primaryKey: ['id']).eq('client_id', clientId);
+    
+    // We combine the streams: every time either remote or local changes, we yield.
+    // To simplify without RxDart, we can just use a helper stream.
+    List<Map<String, dynamic>> latestRemote = [];
+    
+    await for (final update in StreamGroup.merge([
+      remoteStream.map((nodes) { latestRemote = nodes; return 'remote'; }),
+      _nodesUpdateController.stream.map((_) => 'local'),
+    ])) {
+      yield await fetchMerged(latestRemote);
+    }
+  }
+
+  Map<String, dynamic> _fixMetadata(Map<String, dynamic> json) {
+    final map = Map<String, dynamic>.from(json);
+    if (map['metadata'] != null && map['metadata'] is String) {
+      try {
+        map['metadata'] = jsonDecode(map['metadata']);
+      } catch (_) {}
+    }
+    return map;
   }
 
   Future<void> upsertNode(Node node, {List<Node> allNodes = const []}) async {
@@ -579,6 +620,7 @@ class SupabaseService {
     
     // Trigger async sync
     SyncService.instance.syncAll();
+    notifyNodesChanged();
     await logAction('UPSERT', 'nodes', targetId: node.id, newValue: node.toJson());
   }
 
@@ -600,6 +642,7 @@ class SupabaseService {
     await db.update('local_nodes', {'sync_status': 'pending_delete'}, where: 'id = ?', whereArgs: [nodeId]);
     
     SyncService.instance.syncAll();
+    notifyNodesChanged();
     await logAction('DELETE', 'nodes', targetId: nodeId, newValue: {'reason': reason});
   }
 

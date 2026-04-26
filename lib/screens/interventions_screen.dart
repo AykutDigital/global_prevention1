@@ -734,12 +734,14 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
   }
 
   Widget _buildEquipmentSummary(String clientId) {
-    return FutureBuilder<List<Equipment>>(
-      future: SupabaseService.instance.getEquipmentForClient(clientId),
+    return StreamBuilder<List<Node>>(
+      stream: SupabaseService.instance.nodesStream(clientId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox.shrink();
-        final equipments = snapshot.data ?? [];
-        if (equipments.isEmpty) {
+        final nodes = snapshot.data ?? [];
+        final equipmentNodes = nodes.where((n) => n.type == 'equipment').toList();
+        
+        if (equipmentNodes.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text('Première visite / arborescence à créer', 
@@ -747,10 +749,11 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
           );
         }
         
-        // Group by type
+        // Group by category
         final groups = <String, int>{};
-        for (var eq in equipments) {
-          groups[eq.type] = (groups[eq.type] ?? 0) + 1;
+        for (var node in equipmentNodes) {
+          final cat = node.category ?? 'Autre';
+          groups[cat] = (groups[cat] ?? 0) + 1;
         }
         
         return Container(
@@ -759,7 +762,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('ÉQUIPEMENTS À VÉRIFIER', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: AppTheme.tertiaryText, letterSpacing: 1)),
+              const Text('RÉSUMÉ ÉQUIPEMENTS (SITE)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: AppTheme.tertiaryText, letterSpacing: 1)),
               const SizedBox(height: 6),
               Wrap(
                 spacing: 6,

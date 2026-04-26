@@ -990,6 +990,7 @@ class Node {
     'type': type,
     'category': category,
     'metadata': metadata,
+    'created_at': createdAt.toIso8601String(),
     'sync_status': syncStatus,
   };
 
@@ -1060,6 +1061,7 @@ class RiskAnalysis {
     'observations': observations,
     'is_blocking': isBlocking,
     'technician_signature_url': technicianSignatureUrl,
+    'created_at': createdAt.toIso8601String(),
     'sync_status': syncStatus,
   };
 }
@@ -1067,7 +1069,7 @@ class RiskAnalysis {
 class InterventionAction {
   final String id;
   final String interventionId;
-  final String nodeId;
+  final String? nodeId;
   final String status;
   final String? observations;
   final bool isExtraBilling;
@@ -1079,7 +1081,7 @@ class InterventionAction {
   const InterventionAction({
     required this.id,
     required this.interventionId,
-    required this.nodeId,
+    this.nodeId,
     required this.status,
     this.observations,
     this.isExtraBilling = false,

@@ -3,15 +3,18 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/supabase_service.dart';
 import '../widgets/responsive_layout.dart';
+import 'package:uuid/uuid.dart';
 
 class ArborescenceScreen extends StatefulWidget {
   final String clientId;
   final String? raisonSociale;
+  final String? interventionId;
 
   const ArborescenceScreen({
     super.key,
     required this.clientId,
     this.raisonSociale,
+    this.interventionId,
   });
 
   @override
@@ -21,6 +24,22 @@ class ArborescenceScreen extends StatefulWidget {
 class _ArborescenceScreenState extends State<ArborescenceScreen> {
   final Map<String, bool> _expandedNodes = {};
   List<Node> _currentNodes = [];
+  List<InterventionAction> _actions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActions();
+  }
+
+  Future<void> _loadActions() async {
+    if (widget.interventionId != null) {
+      final actions = await SupabaseService.instance.getInterventionActions(widget.interventionId!);
+      if (mounted) setState(() => _actions = actions);
+    }
+  }
+
+  late final Stream<List<Node>> _nodesStream = SupabaseService.instance.nodesStream(widget.clientId);
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +54,7 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
         ],
       ),
       body: StreamBuilder<List<Node>>(
-        stream: SupabaseService.instance.nodesStream(widget.clientId),
+        stream: _nodesStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -82,19 +101,26 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
     if (children.isEmpty) return const SizedBox.shrink();
 
     return Column(
-      children: children.map((node) => _buildNodeTile(node, tree, level)).toList(),
+      children: children.map((node) => _buildNodeTile(node, tree, level, key: ValueKey(node.id))).toList(),
     );
   }
 
-  Widget _buildNodeTile(Node node, Map<String, List<Node>> tree, int level) {
+  Widget _buildNodeTile(Node node, Map<String, List<Node>> tree, int level, {Key? key}) {
     final hasChildren = tree.containsKey(node.id);
     final isExpanded = _expandedNodes[node.id] ?? false;
     final isEquipment = node.type == 'equipment';
 
     return Column(
+      key: key,
       children: [
         InkWell(
-          onTap: isEquipment ? null : () => setState(() => _expandedNodes[node.id] = !isExpanded),
+          onTap: () {
+            if (isEquipment && widget.interventionId != null) {
+              _showEquipmentValidation(node);
+            } else if (!isEquipment) {
+              setState(() => _expandedNodes[node.id] = !isExpanded);
+            }
+          },
           child: Container(
             margin: const EdgeInsets.only(bottom: 4),
             padding: EdgeInsets.only(
@@ -129,12 +155,20 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        node.label,
-                        style: TextStyle(
-                          fontWeight: isEquipment ? FontWeight.w600 : FontWeight.bold,
-                          fontSize: isEquipment ? 14 : 15,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              node.label,
+                              style: TextStyle(
+                                fontWeight: isEquipment ? FontWeight.w600 : FontWeight.bold,
+                                fontSize: isEquipment ? 14 : 15,
+                              ),
+                            ),
+                          ),
+                          if (isEquipment && widget.interventionId != null) 
+                            _buildActionStatus(node.id),
+                        ],
                       ),
                       if (node.category != null)
                         Text(
@@ -268,7 +302,7 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
             ElevatedButton(
               onPressed: () {
                 final newNode = Node(
-                  id: '', 
+                  id: const Uuid().v4(), 
                   clientId: widget.clientId,
                   parentId: parentId == 'root' ? null : parentId,
                   label: controller.text,
@@ -387,6 +421,50 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
             icon: const Icon(Icons.add),
             label: const Text('Ajouter le premier élément'),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionStatus(String nodeId) {
+    final action = _actions.where((a) => a.nodeId == nodeId).firstOrNull;
+    if (action == null) return const SizedBox.shrink();
+
+    final status = StatutElement.values.firstWhere((s) => s.label == action.status, orElse: () => StatutElement.v);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: status.color.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: status.color.withOpacity(0.3))),
+      child: Text(status.label, style: TextStyle(color: status.color, fontSize: 10, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  void _showEquipmentValidation(Node node) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Vérification : ${node.label}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: StatutElement.values.map((s) => ListTile(
+            leading: Icon(Icons.circle, color: s.color, size: 16),
+            title: Text(s.fullLabel),
+            trailing: Text(s.label, style: const TextStyle(fontWeight: FontWeight.bold)),
+            onTap: () async {
+              final action = InterventionAction(
+                id: '', 
+                interventionId: widget.interventionId!,
+                nodeId: node.id,
+                status: s.label,
+                createdAt: DateTime.now(),
+              );
+              await SupabaseService.instance.saveInterventionAction(action);
+              _loadActions();
+              if (mounted) Navigator.pop(context);
+            },
+          )).toList(),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
         ],
       ),
     );

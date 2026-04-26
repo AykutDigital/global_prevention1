@@ -102,7 +102,8 @@ class _InterventionExecutionScreenState extends State<InterventionExecutionScree
                   MaterialPageRoute(
                     builder: (_) => ArborescenceScreen(
                       clientId: widget.intervention.clientId,
-                      raisonSociale: 'Intervention en cours',
+                      raisonSociale: widget.intervention.clientRaisonSociale ?? 'Site',
+                      interventionId: widget.intervention.interventionId,
                     ),
                   ),
                 );
@@ -434,7 +435,7 @@ class _ExtraActionsBottomSheetState extends State<_ExtraActionsBottomSheet> {
     final action = InterventionAction(
       id: '', 
       interventionId: widget.intervention.interventionId,
-      nodeId: '', // General site action
+      nodeId: null, // General site action
       status: extra['label'],
       isExtraBilling: true,
       priceImpact: extra['price'],

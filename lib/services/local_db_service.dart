@@ -19,7 +19,7 @@ class LocalDbService {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -45,25 +45,65 @@ class LocalDbService {
         )
       ''');
     }
-    if (oldVersion < 4) {
-      // Simplest way for dev: Drop and recreate or add columns.
-      // We'll add missing columns to local_interventions
-      final columns = [
+    if (oldVersion < 5) {
+      // Version 4 & 5 consolidation
+      final interventionsCols = [
         'branche', 'periodicite', 'scheduled_date', 'actual_date', 
         'start_time', 'end_time', 'date_prochaine', 'technicien_nom',
         'observations', 'duree_minutes', 'surface_m2', 'registre_securite',
         'activite_site', 'risques_site', 'client_raison_sociale', 
         'arborescence_json', 'risk_analysis_id', 'notes'
       ];
-      for (var col in columns) {
+      for (var col in interventionsCols) {
         try {
           await db.execute('ALTER TABLE local_interventions ADD COLUMN $col TEXT');
-        } catch (e) {
-          // Column might already exist
-        }
+        } catch (e) {}
       }
 
-      // ALSO add missing table local_equipment if it was added in version 4
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_nodes (
+          id TEXT PRIMARY KEY,
+          client_id TEXT,
+          parent_id TEXT,
+          label TEXT,
+          type TEXT,
+          category TEXT,
+          metadata TEXT,
+          created_at TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          updated_at TEXT
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_risk_analyses (
+          id TEXT PRIMARY KEY,
+          intervention_id TEXT,
+          responses TEXT,
+          observations TEXT,
+          is_blocking INTEGER,
+          technician_signature_url TEXT,
+          created_at TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          updated_at TEXT
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_intervention_actions (
+          id TEXT PRIMARY KEY,
+          intervention_id TEXT,
+          node_id TEXT,
+          status TEXT,
+          observations TEXT,
+          is_extra_billing INTEGER,
+          price_impact REAL,
+          created_at TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          updated_at TEXT
+        )
+      ''');
+
       await db.execute('''
         CREATE TABLE IF NOT EXISTS local_equipment (
           id TEXT PRIMARY KEY,
@@ -84,6 +124,14 @@ class LocalDbService {
           updated_at TEXT
         )
       ''');
+      
+      // Ensure created_at exists if tables were partially created in v4
+      final tablesWithCreatedAt = ['local_nodes', 'local_risk_analyses', 'local_intervention_actions'];
+      for (var table in tablesWithCreatedAt) {
+        try {
+          await db.execute('ALTER TABLE $table ADD COLUMN created_at TEXT');
+        } catch (e) {}
+      }
     }
   }
 
@@ -131,6 +179,7 @@ class LocalDbService {
         type TEXT,
         category TEXT,
         metadata TEXT,
+        created_at TEXT,
         sync_status TEXT DEFAULT 'synced',
         updated_at TEXT
       )
@@ -144,6 +193,7 @@ class LocalDbService {
         observations TEXT,
         is_blocking INTEGER,
         technician_signature_url TEXT,
+        created_at TEXT,
         sync_status TEXT DEFAULT 'synced',
         updated_at TEXT
       )
@@ -158,6 +208,7 @@ class LocalDbService {
         observations TEXT,
         is_extra_billing INTEGER,
         price_impact REAL,
+        created_at TEXT,
         sync_status TEXT DEFAULT 'synced',
         updated_at TEXT
       )
