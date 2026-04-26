@@ -22,6 +22,7 @@ class SignaturePad extends StatefulWidget {
 class _SignaturePadState extends State<SignaturePad> {
   late SignatureController _controller;
   bool _hasInitialSignature = false;
+  bool _captured = false;
 
   @override
   void initState() {
@@ -45,11 +46,21 @@ class _SignaturePadState extends State<SignaturePad> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        Row(
+          children: [
+            Text(widget.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            if (_captured) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 16),
+              const SizedBox(width: 4),
+              const Text('Capturée', style: TextStyle(color: AppTheme.successGreen, fontSize: 12, fontWeight: FontWeight.w500)),
+            ],
+          ],
+        ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            border: Border.all(color: AppTheme.divider),
+            border: Border.all(color: _captured ? AppTheme.successGreen : AppTheme.divider),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
@@ -80,7 +91,7 @@ class _SignaturePadState extends State<SignaturePad> {
                       icon: const Icon(Icons.delete_outline, color: AppTheme.veriflammeRed),
                       onPressed: () {
                         _controller.clear();
-                        setState(() => _hasInitialSignature = false);
+                        setState(() { _hasInitialSignature = false; _captured = false; });
                         widget.onSaved(null);
                       },
                       tooltip: 'Effacer',
@@ -91,11 +102,7 @@ class _SignaturePadState extends State<SignaturePad> {
                         if (_controller.isNotEmpty) {
                           final signature = await _controller.toPngBytes();
                           widget.onSaved(signature);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Signature capturée !')),
-                            );
-                          }
+                          if (mounted) setState(() => _captured = true);
                         }
                       },
                       tooltip: 'Valider',

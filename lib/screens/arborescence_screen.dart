@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/supabase_service.dart';
 import '../widgets/responsive_layout.dart';
 import 'package:uuid/uuid.dart';
+import 'arborescence_preview_screen.dart';
 
 class ArborescenceScreen extends StatefulWidget {
   final String clientId;
@@ -25,11 +28,24 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
   final Map<String, bool> _expandedNodes = {};
   List<Node> _currentNodes = [];
   List<InterventionAction> _actions = [];
+  bool _isLoading = true;
+  StreamSubscription<List<Node>>? _nodesSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadActions();
+    _nodesSubscription = SupabaseService.instance
+        .nodesStream(widget.clientId)
+        .listen((nodes) {
+      if (mounted) setState(() { _currentNodes = nodes; _isLoading = false; });
+    });
+  }
+
+  @override
+  void dispose() {
+    _nodesSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadActions() async {
@@ -39,8 +55,6 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
     }
   }
 
-  late final Stream<List<Node>> _nodesStream = SupabaseService.instance.nodesStream(widget.clientId);
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -48,34 +62,27 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
         title: Text('Arborescence : ${widget.raisonSociale ?? "Client"}'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.download_rounded),
+            tooltip: 'Télécharger l\'arborescence',
+            onPressed: _currentNodes.isEmpty ? null : _downloadArborescence,
+          ),
+          IconButton(
             icon: const Icon(Icons.help_outline_rounded),
             onPressed: () => _showHelp(),
           ),
         ],
       ),
-      body: StreamBuilder<List<Node>>(
-        stream: _nodesStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final nodes = snapshot.data ?? [];
-          _currentNodes = nodes;
-          if (nodes.isEmpty) {
-            return _buildEmptyState();
-          }
-
-          final tree = _buildTree(nodes);
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _buildNodeList(tree, 'root', 0),
-              const SizedBox(height: 80),
-            ],
-          );
-        },
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _currentNodes.isEmpty
+              ? _buildEmptyState()
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildNodeList(_buildTree(_currentNodes), 'root', 0),
+                    const SizedBox(height: 80),
+                  ],
+                ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddNodeDialog(null, 'root'),
         icon: const Icon(Icons.add_business_rounded),
@@ -259,6 +266,16 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
     }
   }
 
+  void _isCircularCheck(Node node) {
+    if (node.parentId == null) return;
+    String? current = node.parentId;
+    final nodeMap = {for (var n in _currentNodes) n.id: n};
+    while (current != null) {
+      if (current == node.id) throw Exception('Boucle infinie détectée dans l\'arborescence');
+      current = nodeMap[current]?.parentId;
+    }
+  }
+
   void _showAddNodeDialog(Node? parent, String parentId) {
     final type = _getChildType(parent?.type ?? 'root');
     final controller = TextEditingController();
@@ -302,7 +319,7 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
             ElevatedButton(
               onPressed: () {
                 final newNode = Node(
-                  id: const Uuid().v4(), 
+                  id: const Uuid().v4(),
                   clientId: widget.clientId,
                   parentId: parentId == 'root' ? null : parentId,
                   label: controller.text,
@@ -310,16 +327,25 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
                   category: selectedCategory,
                   createdAt: DateTime.now(),
                 );
-                
+
                 try {
-                  SupabaseService.instance.upsertNode(newNode, allNodes: _currentNodes);
-                  Navigator.pop(context);
+                  _isCircularCheck(newNode);
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+                  return;
                 }
-                if (parentId != 'root') {
-                  setState(() => _expandedNodes[parentId] = true);
-                }
+
+                // Mise à jour immédiate de l'UI
+                setState(() {
+                  _currentNodes = [..._currentNodes, newNode]..sort((a, b) => a.label.compareTo(b.label));
+                  if (parentId != 'root') _expandedNodes[parentId] = true;
+                });
+                Navigator.pop(context);
+
+                final messenger = ScaffoldMessenger.of(context);
+                SupabaseService.instance.upsertNode(newNode, allNodes: _currentNodes).catchError((e) {
+                  if (mounted) messenger.showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+                });
               },
               child: const Text('AJOUTER'),
             ),
@@ -466,6 +492,20 @@ class _ArborescenceScreenState extends State<ArborescenceScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
         ],
+      ),
+    );
+  }
+
+  void _downloadArborescence() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ArborescencePreviewScreen(
+          clientId: widget.clientId,
+          raisonSociale: widget.raisonSociale ?? 'Client',
+          nodes: _currentNodes,
+          actions: _actions,
+        ),
       ),
     );
   }

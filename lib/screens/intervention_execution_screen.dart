@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/supabase_service.dart';
@@ -10,7 +11,6 @@ import 'arborescence_screen.dart';
 import 'package:signature/signature.dart' as sig;
 import '../widgets/signature_pad.dart';
 import 'report_preview_screen.dart' as rps;
-import 'dart:typed_data';
 import '../services/pdf_service.dart';
 
 class InterventionExecutionScreen extends StatefulWidget {
@@ -50,6 +50,30 @@ class _InterventionExecutionScreenState extends State<InterventionExecutionScree
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
+    if (widget.intervention.statut == StatutIntervention.terminee) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Exécution Intervention')),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Color(0xFF43A047), size: 72),
+              const SizedBox(height: 16),
+              const Text('Intervention terminée', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              const SizedBox(height: 8),
+              const Text('Cette intervention a été clôturée et signée.', style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text('Retour'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     final bool isRiskDone = _riskAnalysis != null;
     final bool isBlocking = _riskAnalysis?.isBlocking ?? false;
@@ -361,12 +385,95 @@ class _ExtraActionsBottomSheetState extends State<_ExtraActionsBottomSheet> {
     {'label': 'Panneau Signalétique Photoluminescent', 'price': 15.0},
   ];
 
+  List<InterventionAction> _actions = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActions();
+  }
+
+  Future<void> _loadActions() async {
+    final all = await SupabaseService.instance.getInterventionActions(widget.intervention.interventionId);
+    if (mounted) setState(() {
+      _actions = all.where((a) => a.isExtraBilling).toList();
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _addExtra(Map<String, dynamic> extra) async {
+    final action = InterventionAction(
+      id: const Uuid().v4(),
+      interventionId: widget.intervention.interventionId,
+      status: extra['label'],
+      isExtraBilling: true,
+      priceImpact: (extra['price'] as num).toDouble(),
+      createdAt: DateTime.now(),
+    );
+    setState(() => _actions = [..._actions, action]);
+    await SupabaseService.instance.saveInterventionAction(action);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${extra['label']} ajouté.'), duration: const Duration(seconds: 2)),
+      );
+    }
+  }
+
+  Future<void> _deleteAction(InterventionAction action) async {
+    setState(() => _actions = _actions.where((a) => a.id != action.id).toList());
+    await SupabaseService.instance.deleteInterventionAction(action.id);
+  }
+
+  void _showCustomDialog() {
+    final labelCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Prestation personnalisée'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: labelCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: priceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Prix (€)', suffixText: '€'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ANNULER')),
+          ElevatedButton(
+            onPressed: () {
+              final label = labelCtrl.text.trim();
+              final price = double.tryParse(priceCtrl.text.replaceAll(',', '.')) ?? 0.0;
+              if (label.isNotEmpty) {
+                Navigator.pop(ctx);
+                _addExtra({'label': label, 'price': price});
+              }
+            },
+            child: const Text('AJOUTER'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final total = _actions.fold(0.0, (sum, a) => sum + a.priceImpact);
+
     return Container(
       padding: EdgeInsets.only(
-        left: 24, right: 24, top: 24, 
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+        left: 24, right: 24, top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -382,42 +489,60 @@ class _ExtraActionsBottomSheetState extends State<_ExtraActionsBottomSheet> {
           const SizedBox(height: 8),
           const Text('Sélectionnez des prestations hors forfait effectuées sur site.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13)),
           const SizedBox(height: 20),
-          
-          StreamBuilder<List<InterventionAction>>(
-            stream: SupabaseService.instance.interventionActionsStream(widget.intervention.interventionId),
-            builder: (context, snapshot) {
-              final actions = snapshot.data?.where((a) => a.isExtraBilling).toList() ?? [];
-              
-              return Column(
+
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            if (_actions.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  if (actions.isNotEmpty) ...[
-                    const Text('Actions ajoutées :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 8),
-                    ...actions.map((a) => ListTile(
-                      dense: true,
-                      title: Text(a.status),
-                      trailing: Text('${a.priceImpact.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      leading: const Icon(Icons.check_box, color: AppTheme.successGreen, size: 20),
-                    )),
-                    const Divider(),
-                    const SizedBox(height: 12),
-                  ],
-                  
-                  const Text('Prestations communes :', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.secondaryText)),
-                  const SizedBox(height: 12),
-                  ..._commonExtras.map((extra) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(extra['label'], style: const TextStyle(fontSize: 14)),
-                      trailing: Text('${extra['price']} €', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary)),
-                      onTap: () => _addExtra(extra),
-                    ),
-                  )),
+                  const Text('Ajoutés :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  Text('Total : ${total.toStringAsFixed(2)} €',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary)),
                 ],
-              );
-            }
-          ),
-          
+              ),
+              const SizedBox(height: 4),
+              ..._actions.map((a) => ListTile(
+                dense: true,
+                leading: const Icon(Icons.check_circle_rounded, color: AppTheme.successGreen, size: 20),
+                title: Text(a.status),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${a.priceImpact.toStringAsFixed(2)} €',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+                      onPressed: () => _deleteAction(a),
+                      tooltip: 'Supprimer',
+                    ),
+                  ],
+                ),
+              )),
+              const Divider(),
+              const SizedBox(height: 8),
+            ],
+
+            const Text('Prestations communes :', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppTheme.secondaryText)),
+            const SizedBox(height: 8),
+            ..._commonExtras.map((extra) => Card(
+              margin: const EdgeInsets.only(bottom: 6),
+              child: ListTile(
+                title: Text(extra['label'], style: const TextStyle(fontSize: 14)),
+                trailing: Text('${extra['price']} €',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                onTap: () => _addExtra(extra),
+              ),
+            )),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _showCustomDialog,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Prestation personnalisée'),
+            ),
+          ],
+
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
@@ -429,23 +554,6 @@ class _ExtraActionsBottomSheetState extends State<_ExtraActionsBottomSheet> {
         ],
       ),
     );
-  }
-
-  Future<void> _addExtra(Map<String, dynamic> extra) async {
-    final action = InterventionAction(
-      id: '', 
-      interventionId: widget.intervention.interventionId,
-      nodeId: null, // General site action
-      status: extra['label'],
-      isExtraBilling: true,
-      priceImpact: extra['price'],
-      createdAt: DateTime.now(),
-    );
-    
-    await SupabaseService.instance.saveInterventionAction(action);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${extra['label']} ajouté au rapport.')));
-    }
   }
 }
 
@@ -460,37 +568,47 @@ class _ClotureBottomSheet extends StatefulWidget {
 
 class _ClotureBottomSheetState extends State<_ClotureBottomSheet> {
   Uint8List? _clientSignature;
+  Uint8List? _techSignature;
   bool _isSaving = false;
+
+  bool get _canFinalize => _clientSignature != null && _techSignature != null && !_isSaving;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SingleChildScrollView(
       padding: EdgeInsets.only(
-        left: 24, right: 24, top: 24, 
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24
+        left: 24, right: 24, top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Clôture de l\'intervention', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 16),
-          const Text('La signature du client est requise pour valider le rapport et terminer l\'intervention.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13)),
+          const SizedBox(height: 8),
+          const Text('Les signatures du client et du technicien sont requises pour valider et clôturer.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13)),
           const SizedBox(height: 24),
-          
+
           SignaturePad(
             label: 'Signature du client',
             onSaved: (bytes) => setState(() => _clientSignature = bytes),
           ),
-          
+
+          const SizedBox(height: 24),
+
+          SignaturePad(
+            label: 'Signature du technicien',
+            onSaved: (bytes) => setState(() => _techSignature = bytes),
+          ),
+
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: (_clientSignature != null && !_isSaving) ? _finalizeIntervention : null,
-              icon: _isSaving 
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.check_circle_outline),
+              onPressed: _canFinalize ? _finalizeIntervention : null,
+              icon: _isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.check_circle_outline),
               label: Text(_isSaving ? 'Enregistrement...' : 'Signer et Clôturer'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -516,7 +634,7 @@ class _ClotureBottomSheetState extends State<_ClotureBottomSheet> {
 
       // 2. Create Rapport object
       final rapport = Rapport(
-        rapportId: '', 
+        rapportId: const Uuid().v4(),
         interventionId: widget.intervention.interventionId,
         numeroRapport: 'GP-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
         dateCreation: DateTime.now(),
@@ -527,7 +645,7 @@ class _ClotureBottomSheetState extends State<_ClotureBottomSheet> {
         equipmentChecks: [], 
         signatureUrl: jsonEncode({
           'client': _clientSignature != null ? base64Encode(_clientSignature!) : '',
-          'tech': widget.riskAnalysis?.technicianSignatureUrl ?? '',
+          'tech': _techSignature != null ? base64Encode(_techSignature!) : '',
         }),
       );
 

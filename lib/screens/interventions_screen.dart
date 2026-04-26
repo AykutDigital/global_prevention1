@@ -242,12 +242,35 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
       timeRange = DateFormat('HH:mm').format(intervention.scheduledDate);
     }
 
+    final isTerminee = intervention.statut == StatutIntervention.terminee;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
       shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      child: Padding(
+      child: Column(
+        children: [
+          if (isTerminee)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(15)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Color(0xFF43A047), size: 16),
+                  SizedBox(width: 8),
+                  Text(
+                    'Intervention terminée — Lecture seule',
+                    style: TextStyle(color: Color(0xFF43A047), fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
@@ -407,46 +430,51 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => _showQuickEditModal(intervention),
-                    icon: const Icon(Icons.edit_rounded, size: 16),
-                    label: const Text('Modifier', style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.grey.withOpacity(0.05),
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                  if (!isTerminee)
+                    TextButton.icon(
+                      onPressed: () => _showQuickEditModal(intervention),
+                      icon: const Icon(Icons.edit_rounded, size: 16),
+                      label: const Text('Modifier', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.grey.withOpacity(0.05),
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
                     ),
-                  ),
-                  ElevatedButton(
+                  ElevatedButton.icon(
                     onPressed: () => _handleInterventionAction(intervention),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: intervention.statut == StatutIntervention.terminee ? Colors.grey : AppTheme.primary,
+                      backgroundColor: isTerminee ? const Color(0xFF43A047) : AppTheme.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       elevation: 0,
                     ),
-                    child: Text(
-                      intervention.statut == StatutIntervention.terminee ? 'Rapport' : 'Démarrer', 
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)
+                    icon: Icon(isTerminee ? Icons.description_rounded : Icons.play_arrow_rounded, size: 16),
+                    label: Text(
+                      isTerminee ? 'Voir le rapport' : 'Démarrer',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => _confirmDeleteIntervention(intervention),
-                    icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
-                    label: const Text('Supprimer', style: TextStyle(fontSize: 12, color: Colors.red)),
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.red.withOpacity(0.05),
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                  if (!isTerminee)
+                    TextButton.icon(
+                      onPressed: () => _confirmDeleteIntervention(intervention),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
+                      label: const Text('Supprimer', style: TextStyle(fontSize: 12, color: Colors.red)),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.red.withOpacity(0.05),
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+        ],
       ),
     );
   }

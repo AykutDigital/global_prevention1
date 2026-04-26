@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sqflite/sqflite.dart';
@@ -258,12 +260,40 @@ class SupabaseService {
 
   // ─── INTERVENTIONS ──────────────────────────────────────────────────
 
-  Stream<List<Intervention>> get interventionsStream {
-    return _client
-        .from('interventions')
-        .stream(primaryKey: ['id'])
-        .order('date_intervention', ascending: false)
-        .map((data) => data.map((json) => Intervention.fromJson(json)).toList());
+  Stream<List<Intervention>> get interventionsStream async* {
+    final db = await LocalDbService.instance.database;
+
+    Future<List<Intervention>> fetchMerged(List<Map<String, dynamic>> remote) async {
+      final Map<String, Intervention> merged = {};
+      // Remote first (base)
+      for (final json in remote) {
+        final i = Intervention.fromJson(json);
+        merged[i.interventionId] = i;
+      }
+      // Local overrides remote (local is always more up-to-date for pending changes)
+      final local = await db.query('local_interventions');
+      for (final row in local) {
+        final map = Map<String, dynamic>.from(row);
+        final i = Intervention.fromJson(map);
+        merged[i.interventionId] = i;
+      }
+      return merged.values.toList()..sort((a, b) => b.scheduledDate.compareTo(a.scheduledDate));
+    }
+
+    // Initial emit from local
+    final initialLocal = await db.query('local_interventions');
+    yield initialLocal.map((r) => Intervention.fromJson(Map<String, dynamic>.from(r))).toList()
+      ..sort((a, b) => b.scheduledDate.compareTo(a.scheduledDate));
+
+    List<Map<String, dynamic>> latestRemote = [];
+    final remoteStream = _client.from('interventions').stream(primaryKey: ['id']).order('date_intervention', ascending: false);
+
+    await for (final _ in StreamGroup.merge(<Stream<void>>[
+      remoteStream.map((data) { latestRemote = data; }),
+      _interventionsUpdateController.stream,
+    ])) {
+      yield await fetchMerged(latestRemote);
+    }
   }
 
   Stream<List<Intervention>> interventionsByDateStream(DateTime date) {
@@ -582,7 +612,7 @@ class SupabaseService {
     // To simplify without RxDart, we can just use a helper stream.
     List<Map<String, dynamic>> latestRemote = [];
     
-    await for (final update in StreamGroup.merge([
+    await for (final update in StreamGroup.merge(<Stream<String>>[
       remoteStream.map((nodes) { latestRemote = nodes; return 'remote'; }),
       _nodesUpdateController.stream.map((_) => 'local'),
     ])) {
@@ -703,16 +733,22 @@ class SupabaseService {
   Future<void> saveInterventionAction(InterventionAction action) async {
     final db = await LocalDbService.instance.database;
     final localData = action.toJson();
+    localData['id'] = action.id.isNotEmpty ? action.id : const Uuid().v4();
     localData['sync_status'] = 'pending_update';
     localData['updated_at'] = DateTime.now().toIso8601String();
-    
-    // SQFLITE conversion
     localData['is_extra_billing'] = action.isExtraBilling ? 1 : 0;
-    localData.remove('photos'); // SQLite doesn't handle lists easily, separate table needed for photos later
+    localData.remove('photos');
 
     await db.insert('local_intervention_actions', localData, conflictAlgorithm: ConflictAlgorithm.replace);
-    
     SyncService.instance.syncAll();
+  }
+
+  Future<void> deleteInterventionAction(String id) async {
+    final db = await LocalDbService.instance.database;
+    await db.delete('local_intervention_actions', where: 'id = ?', whereArgs: [id]);
+    try {
+      await _client.from('intervention_actions').delete().eq('id', id);
+    } catch (_) {}
   }
 
   Future<List<InterventionAction>> getInterventionActions(String interventionId) async {
@@ -766,14 +802,20 @@ class SupabaseService {
     data['sync_status'] = SyncStatus.pending_update.name;
     await LocalDbService.instance.upsert('local_interventions', data);
     SyncService.instance.syncAll();
+    _interventionsUpdateController.add(null);
   }
 
   Future<void> saveRapport(Rapport rapport) async {
     final data = rapport.toJson();
     data['sync_status'] = SyncStatus.pending_update.name;
+    data['email_envoye'] = rapport.emailEnvoye ? 1 : 0;
     await LocalDbService.instance.upsert('local_rapports', data);
     SyncService.instance.syncAll();
+    _interventionsUpdateController.add(null);
   }
+
+  final _interventionsUpdateController = StreamController<void>.broadcast();
+  void notifyInterventionsChanged() => _interventionsUpdateController.add(null);
 
   // ─── AUDIT LOG ─────────────────────────────────────────────────────
 

@@ -19,7 +19,7 @@ class LocalDbService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 7,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -132,6 +132,25 @@ class LocalDbService {
           await db.execute('ALTER TABLE $table ADD COLUMN created_at TEXT');
         } catch (e) {}
       }
+    }
+    // Version 7 : colonnes manquantes sur local_interventions et local_rapports
+    // On utilise try/catch pour chaque ALTER TABLE — si la colonne existe déjà, l'erreur est ignorée.
+    final interventionMissing = {'technician_id': 'TEXT'};
+    for (final entry in interventionMissing.entries) {
+      try {
+        await db.execute('ALTER TABLE local_interventions ADD COLUMN ${entry.key} ${entry.value}');
+      } catch (_) {}
+    }
+    final rapportMissing = {
+      'email_envoye': 'INTEGER',
+      'date_envoi_email': 'TEXT',
+      'signature_url': 'TEXT',
+      'pdf_url': 'TEXT',
+    };
+    for (final entry in rapportMissing.entries) {
+      try {
+        await db.execute('ALTER TABLE local_rapports ADD COLUMN ${entry.key} ${entry.value}');
+      } catch (_) {}
     }
   }
 
@@ -253,8 +272,12 @@ class LocalDbService {
         type_rapport TEXT,
         date_creation TEXT,
         conformite TEXT,
+        email_envoye INTEGER,
+        date_envoi_email TEXT,
         recommandations TEXT,
         branche TEXT,
+        signature_url TEXT,
+        pdf_url TEXT,
         sync_status TEXT DEFAULT 'synced',
         updated_at TEXT
       )
