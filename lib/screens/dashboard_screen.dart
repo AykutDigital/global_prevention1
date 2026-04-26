@@ -7,6 +7,7 @@ import '../widgets/responsive_layout.dart';
 import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
 import '../repositories/client_repository.dart';
+import 'intervention_execution_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -312,27 +313,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
               decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
               child: Center(child: Text('Aucune intervention planifiée.', style: TextStyle(color: AppTheme.secondaryText, fontSize: 13))),
             ),
-          ...filteredEvents.map((event) => Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: event.branche.lightColor,
-              borderRadius: BorderRadius.circular(8),
-              border: Border(left: BorderSide(color: event.branche.color, width: 4)),
+          ...filteredEvents.map((event) => InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => InterventionExecutionScreen(intervention: event),
+              ),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${event.typeIntervention.label} - ${event.technicienNom}', 
-                    style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                ),
-                const SizedBox(width: 8),
-                Icon(event.branche.icon, color: event.branche.color, size: 18),
-              ],
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: event.branche.lightColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border(left: BorderSide(color: event.branche.color, width: 4)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${event.typeIntervention.label} - ${event.technicienNom}', 
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(event.branche.icon, color: event.branche.color, size: 18),
+                ],
+              ),
             ),
           )),
         ],

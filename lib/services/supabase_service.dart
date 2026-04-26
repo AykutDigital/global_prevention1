@@ -2,8 +2,11 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:sqflite/sqflite.dart';
 import '../models/models.dart';
 import '../utils/password_helper.dart';
+import 'local_db_service.dart';
+import 'sync_service.dart';
 
 class SupabaseService {
   static final SupabaseService instance = SupabaseService._();
@@ -193,7 +196,9 @@ class SupabaseService {
   }
 
   Future<void> deleteClient(String id) async {
+    if (!checkPermission('DELETE', table: 'clients')) throw Exception('Permission refusée');
     await _client.from('clients').delete().eq('id', id);
+    await logAction('DELETE', 'clients', targetId: id);
   }
 
   // ─── EQUIPMENT ──────────────────────────────────────────────────────
@@ -207,8 +212,26 @@ class SupabaseService {
   }
 
   Future<List<Equipment>> getEquipmentForClient(String clientId) async {
-    final data = await _client.from('equipment').select().eq('client_id', clientId);
-    return (data as List).map((json) => Equipment.fromJson(json)).toList();
+    try {
+      final data = await _client.from('equipment').select().eq('client_id', clientId);
+      final list = (data as List).map((json) => Equipment.fromJson(json)).toList();
+      
+      // Save to local DB for offline access
+      for (var eq in list) {
+        await LocalDbService.instance.upsert('local_equipment', eq.toJson());
+      }
+      return list;
+    } catch (e) {
+      // Offline fallback
+      try {
+        final db = await LocalDbService.instance.database;
+        final localData = await db.query('local_equipment', where: 'client_id = ?', whereArgs: [clientId]);
+        return localData.map((json) => Equipment.fromJson(json)).toList();
+      } catch (dbErr) {
+        print('Erreur lecture locale équipements: $dbErr');
+        return [];
+      }
+    }
   }
 
   Future<Equipment?> getEquipmentByQrCode(String qrCode) async {
@@ -225,7 +248,9 @@ class SupabaseService {
   }
 
   Future<void> deleteEquipment(String id) async {
+    if (!checkPermission('DELETE', table: 'equipment')) throw Exception('Permission refusée');
     await _client.from('equipment').delete().eq('id', id);
+    await logAction('DELETE', 'equipment', targetId: id);
   }
 
   // ─── INTERVENTIONS ──────────────────────────────────────────────────
@@ -254,15 +279,61 @@ class SupabaseService {
   }
 
   Future<String> insertIntervention(Intervention intervention) async {
-    final response = await _client.from('interventions').insert(intervention.toJson()).select().single();
-    return response['id'] as String;
+    final map = intervention.toJson();
+    map.remove('client_raison_sociale'); // Virtual field for display/offline
+    
+    String finalId = '';
+    bool syncSuccess = false;
+    try {
+      final response = await _client.from('interventions').insert(map).select().single();
+      finalId = response['id'] as String;
+      syncSuccess = true;
+    } catch (e) {
+      print('Insert Supabase failed, saving locally: $e');
+      finalId = intervention.interventionId.isNotEmpty ? intervention.interventionId : 'local_${DateTime.now().millisecondsSinceEpoch}';
+    }
+
+    // Save to local DB
+    final db = await LocalDbService.instance.database;
+    final localMap = intervention.copyWith(interventionId: finalId).toJson();
+    localMap['id'] = finalId;
+    localMap['sync_status'] = syncSuccess ? 'synced' : 'pending_insert';
+    localMap['updated_at'] = DateTime.now().toIso8601String();
+    
+    // SQFLITE conversion
+    localMap['registre_securite'] = (localMap['registre_securite'] == true) ? 1 : 0;
+    
+    await db.insert('local_interventions', localMap, conflictAlgorithm: ConflictAlgorithm.replace);
+    
+    return finalId;
   }
 
   Future<void> updateIntervention(Intervention intervention) async {
-    await _client
-        .from('interventions')
-        .update(intervention.toJson())
-        .eq('id', intervention.interventionId);
+    final map = intervention.toJson();
+    map.remove('client_raison_sociale');
+    
+    bool syncSuccess = false;
+    try {
+      await _client
+          .from('interventions')
+          .update(map)
+          .eq('id', intervention.interventionId);
+      syncSuccess = true;
+    } catch (e) {
+      print('Update Supabase failed, saving locally: $e');
+    }
+
+    // Save to local DB
+    final db = await LocalDbService.instance.database;
+    final localMap = intervention.toJson();
+    localMap['id'] = intervention.interventionId;
+    localMap['sync_status'] = syncSuccess ? 'synced' : 'pending_update';
+    localMap['updated_at'] = DateTime.now().toIso8601String();
+    
+    // SQFLITE conversion
+    localMap['registre_securite'] = (localMap['registre_securite'] == true) ? 1 : 0;
+
+    await db.insert('local_interventions', localMap, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Stream<List<Intervention>> interventionsForClientStream(String clientId) {
@@ -363,11 +434,15 @@ class SupabaseService {
   }
 
   Future<void> deleteRapport(String rapportId) async {
+    if (!checkPermission('DELETE', table: 'rapports')) throw Exception('Permission refusée');
     await _client.from('rapports').delete().eq('id', rapportId);
+    await logAction('DELETE', 'rapports', targetId: rapportId);
   }
 
   Future<void> deleteIntervention(String interventionId) async {
+    if (!checkPermission('DELETE', table: 'interventions')) throw Exception('Permission refusée');
     await _client.from('interventions').delete().eq('id', interventionId);
+    await logAction('DELETE', 'interventions', targetId: interventionId);
   }
 
   // ─── RELANCES ───────────────────────────────────────────────────────
@@ -455,6 +530,229 @@ class SupabaseService {
     } catch (e) {
       print('Erreur génération numéro rapport: $e');
       return '$pattern${DateTime.now().minute}${DateTime.now().second}';
+    }
+  }
+
+  // ─── PERMISSIONS ──────────────────────────────────────────────────
+
+  bool checkPermission(String action, {String? table}) {
+    final user = currentTechnician;
+    if (user == null) return false;
+    if (user.isAdmin) return true;
+
+    // Technicians cannot delete except for equipment nodes
+    if (action == 'DELETE') {
+      if (table == 'nodes') return true; // Technicians can remove equipment nodes if needed
+      return false;
+    }
+    return true;
+  }
+
+  // ─── ARBORESCENCE ──────────────────────────────────────────────────
+
+  Stream<List<Node>> nodesStream(String clientId) {
+    return _client
+        .from('nodes')
+        .stream(primaryKey: ['id'])
+        .eq('client_id', clientId)
+        .order('label', ascending: true)
+        .map((data) => data.map((json) => Node.fromJson(json)).toList());
+  }
+
+  Future<void> upsertNode(Node node, {List<Node> allNodes = const []}) async {
+    // 1. Quick Fix: Circular dependency check
+    if (node.parentId != null && allNodes.isNotEmpty) {
+      if (_isCircular(node.id, node.parentId!, allNodes)) {
+        throw Exception('Boucle infinie détectée dans l\'arborescence');
+      }
+    }
+
+    final db = await LocalDbService.instance.database;
+    final localData = node.toJson();
+    localData['sync_status'] = 'pending_update';
+    localData['updated_at'] = DateTime.now().toIso8601String();
+    
+    // SQLite conversion
+    if (localData['metadata'] != null) localData['metadata'] = jsonEncode(localData['metadata']);
+
+    await db.insert('local_nodes', localData, conflictAlgorithm: ConflictAlgorithm.replace);
+    
+    // Trigger async sync
+    SyncService.instance.syncAll();
+    await logAction('UPSERT', 'nodes', targetId: node.id, newValue: node.toJson());
+  }
+
+  bool _isCircular(String nodeId, String targetParentId, List<Node> allNodes) {
+    String? current = targetParentId;
+    while (current != null) {
+      if (current == nodeId) return true;
+      final parentNode = allNodes.where((n) => n.id == current).firstOrNull;
+      current = parentNode?.parentId;
+    }
+    return false;
+  }
+
+  Future<void> deleteNode(String nodeId, {String? reason}) async {
+    if (!checkPermission('DELETE', table: 'nodes')) throw Exception('Permission refusée');
+    if (reason == null || reason.isEmpty) throw Exception('Un motif de suppression est obligatoire');
+    
+    final db = await LocalDbService.instance.database;
+    await db.update('local_nodes', {'sync_status': 'pending_delete'}, where: 'id = ?', whereArgs: [nodeId]);
+    
+    SyncService.instance.syncAll();
+    await logAction('DELETE', 'nodes', targetId: nodeId, newValue: {'reason': reason});
+  }
+
+  // ─── ANALYSE DE RISQUE ─────────────────────────────────────────────
+
+  Future<RiskAnalysis?> getRiskAnalysisByIntervention(String interventionId) async {
+    try {
+      // First try local
+      final db = await LocalDbService.instance.database;
+      final local = await db.query('local_risk_analyses', where: 'intervention_id = ?', whereArgs: [interventionId]);
+      if (local.isNotEmpty) {
+        final map = Map<String, dynamic>.from(local.first);
+        map['responses'] = jsonDecode(map['responses'] as String);
+        map['is_blocking'] = map['is_blocking'] == 1;
+        return RiskAnalysis.fromJson(map);
+      }
+
+      // Fallback to network
+      final response = await _client
+          .from('risk_analyses')
+          .select()
+          .eq('intervention_id', interventionId)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 5));
+      return response != null ? RiskAnalysis.fromJson(response) : null;
+    } catch (e) {
+      print('Error fetching risk analysis: $e');
+      return null;
+    }
+  }
+
+  Future<void> saveRiskAnalysis(RiskAnalysis analysis) async {
+    final db = await LocalDbService.instance.database;
+    final localData = analysis.toJson();
+    localData['sync_status'] = 'pending_update';
+    localData['updated_at'] = DateTime.now().toIso8601String();
+    
+    // SQFLITE conversion
+    localData['responses'] = jsonEncode(localData['responses']);
+    localData['is_blocking'] = analysis.isBlocking ? 1 : 0;
+
+    await db.insert('local_risk_analyses', localData, conflictAlgorithm: ConflictAlgorithm.replace);
+    
+    SyncService.instance.syncAll();
+    await logAction('SAVE', 'risk_analyses', targetId: analysis.id, newValue: analysis.toJson());
+  }
+
+  // ─── ACTIONS D'INTERVENTION ──────────────────────────────────────
+
+  Stream<List<InterventionAction>> interventionActionsStream(String interventionId) {
+    return _client
+        .from('intervention_actions')
+        .stream(primaryKey: ['id'])
+        .eq('intervention_id', interventionId)
+        .map((data) => data.map((json) => InterventionAction.fromJson(json)).toList());
+  }
+
+  Future<void> saveInterventionAction(InterventionAction action) async {
+    final db = await LocalDbService.instance.database;
+    final localData = action.toJson();
+    localData['sync_status'] = 'pending_update';
+    localData['updated_at'] = DateTime.now().toIso8601String();
+    
+    // SQFLITE conversion
+    localData['is_extra_billing'] = action.isExtraBilling ? 1 : 0;
+    localData.remove('photos'); // SQLite doesn't handle lists easily, separate table needed for photos later
+
+    await db.insert('local_intervention_actions', localData, conflictAlgorithm: ConflictAlgorithm.replace);
+    
+    SyncService.instance.syncAll();
+  }
+
+  Future<List<InterventionAction>> getInterventionActions(String interventionId) async {
+    try {
+      final db = await LocalDbService.instance.database;
+      final List<Map<String, dynamic>> maps = await db.query(
+        'local_intervention_actions',
+        where: 'intervention_id = ?',
+        whereArgs: [interventionId],
+      );
+      
+      if (maps.isNotEmpty) {
+        return List.generate(maps.length, (i) {
+          final map = Map<String, dynamic>.from(maps[i]);
+          map['is_extra_billing'] = map['is_extra_billing'] == 1;
+          return InterventionAction.fromJson(map);
+        });
+      }
+
+      // Fallback to Supabase
+      final response = await _client
+          .from('intervention_actions')
+          .select()
+          .eq('intervention_id', interventionId)
+          .timeout(const Duration(seconds: 5));
+      return (response as List).map((json) => InterventionAction.fromJson(json)).toList();
+    } catch (e) {
+      print('Error fetching intervention actions: $e');
+      return [];
+    }
+  }
+
+  // ─── DOCUMENTS ─────────────────────────────────────────────────────
+
+  Stream<List<AppDocument>> documentsStream(String clientId) {
+    return _client
+        .from('documents')
+        .stream(primaryKey: ['id'])
+        .eq('client_id', clientId)
+        .order('created_at', ascending: false)
+        .map((data) => data.map((json) => AppDocument.fromJson(json)).toList());
+  }
+
+  Future<void> saveDocument(AppDocument doc) async {
+    await _client.from('documents').upsert(doc.toJson());
+    await logAction('SAVE', 'documents', targetId: doc.id, newValue: doc.toJson());
+  }
+
+  Future<void> saveIntervention(Intervention intervention) async {
+    final data = intervention.toJson();
+    data['sync_status'] = SyncStatus.pending_update.name;
+    await LocalDbService.instance.upsert('local_interventions', data);
+    SyncService.instance.syncAll();
+  }
+
+  Future<void> saveRapport(Rapport rapport) async {
+    final data = rapport.toJson();
+    data['sync_status'] = SyncStatus.pending_update.name;
+    await LocalDbService.instance.upsert('local_rapports', data);
+    SyncService.instance.syncAll();
+  }
+
+  // ─── AUDIT LOG ─────────────────────────────────────────────────────
+
+  Future<void> logAction(String action, String table, {String? targetId, Map<String, dynamic>? oldValue, Map<String, dynamic>? newValue}) async {
+    final user = currentTechnician;
+    if (user == null) return;
+
+    final log = AuditLog(
+      id: '', 
+      userId: user.id,
+      action: action,
+      targetTable: table,
+      targetId: targetId,
+      oldValue: oldValue,
+      newValue: newValue,
+      createdAt: DateTime.now(),
+    );
+
+    try {
+      await _client.from('audit_logs').insert(log.toJson());
+    } catch (e) {
+      print('Audit log error: $e');
     }
   }
 

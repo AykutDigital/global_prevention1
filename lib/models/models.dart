@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 // ─── ENUMS ──────────────────────────────────────────────────────────
@@ -17,6 +19,15 @@ enum Conformite { conforme, nonConforme, avecReserves }
 enum StatutRelance { enAttente, envoyee, planifiee, cloturee }
 
 enum StatutElement { v, nv, ms, r, hs, p }
+
+enum SyncStatus { synced, pending_update, pending_delete, failed }
+
+SyncStatus _syncStatusFromLabel(String label) {
+  return SyncStatus.values.firstWhere(
+    (s) => s.name == label,
+    orElse: () => SyncStatus.synced,
+  );
+}
 
 // ─── EXTENSIONS ─────────────────────────────────────────────────────
 
@@ -395,6 +406,7 @@ class Equipment {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'client_id': clientId,
       'branche': branche.label,
       'type': type,
@@ -433,7 +445,10 @@ class Intervention {
   final bool registreSecurite;
   final String? activiteSite;
   final String? risquesSite;
+  final String? clientRaisonSociale;
   final String? arborescenceJson;
+  final String? riskAnalysisId; // New field
+  final String? notes; // Planning notes
   final DateTime? updatedAt;
 
   const Intervention({
@@ -457,7 +472,10 @@ class Intervention {
     this.registreSecurite = true,
     this.activiteSite,
     this.risquesSite,
+    this.clientRaisonSociale,
     this.arborescenceJson,
+    this.riskAnalysisId,
+    this.notes,
     this.updatedAt,
   });
 
@@ -480,10 +498,13 @@ class Intervention {
       observations: json['observations'],
       dureeMinutes: json['duree_minutes'],
       surfaceM2: (json['surface_m2'] as num?)?.toDouble(),
-      registreSecurite: json['registre_securite'] ?? true,
+      clientRaisonSociale: json['client_raison_sociale'],
+      registreSecurite: json['registre_securite'] == true || json['registre_securite'] == 1,
       activiteSite: json['activite_site'],
       risquesSite: json['risques_site'],
       arborescenceJson: json['arborescence_json'],
+      riskAnalysisId: json['risk_analysis_id'] as String?,
+      notes: json['notes'] as String?,
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     );
   }
@@ -506,9 +527,13 @@ class Intervention {
       'observations': observations,
       'duree_minutes': dureeMinutes,
       'surface_m2': surfaceM2,
+      'client_raison_sociale': clientRaisonSociale,
       'registre_securite': registreSecurite,
       'activite_site': activiteSite,
       'risques_site': risquesSite,
+      'arborescence_json': arborescenceJson,
+      'risk_analysis_id': riskAnalysisId,
+      'notes': notes,
       'updated_at': updatedAt?.toIso8601String(),
     };
   }
@@ -533,7 +558,9 @@ class Intervention {
     double? surfaceM2,
     bool? registreSecurite,
     String? activiteSite,
+    String? clientRaisonSociale,
     String? risquesSite,
+    String? riskAnalysisId,
     DateTime? updatedAt,
   }) {
     return Intervention(
@@ -556,7 +583,10 @@ class Intervention {
       surfaceM2: surfaceM2 ?? this.surfaceM2,
       registreSecurite: registreSecurite ?? this.registreSecurite,
       activiteSite: activiteSite ?? this.activiteSite,
+      clientRaisonSociale: clientRaisonSociale ?? this.clientRaisonSociale,
       risquesSite: risquesSite ?? this.risquesSite,
+      riskAnalysisId: riskAnalysisId ?? this.riskAnalysisId,
+      notes: notes ?? this.notes,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -626,6 +656,8 @@ class Rapport {
   final List<EquipmentMaintenanceLine> equipmentChecks;
   final DateTime? reportCreatedAt;
 
+  final SyncStatus syncStatus;
+
   const Rapport({
     required this.rapportId,
     required this.numeroRapport,
@@ -641,6 +673,7 @@ class Rapport {
     this.pdfUrl,
     this.equipmentChecks = const [],
     this.reportCreatedAt,
+    this.syncStatus = SyncStatus.synced,
   });
 
   factory Rapport.fromJson(Map<String, dynamic> json) {
@@ -659,24 +692,26 @@ class Rapport {
       pdfUrl: json['pdf_url'],
       equipmentChecks: (json['equipment_checks'] as List?)?.map((e) => EquipmentMaintenanceLine.fromJson(e)).toList() ?? [],
       reportCreatedAt: json['report_created_at'] != null ? DateTime.parse(json['report_created_at']) : null,
+      syncStatus: _syncStatusFromLabel(json['sync_status'] ?? ''),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'id': rapportId,
       'numero_rapport': numeroRapport,
       'intervention_id': interventionId,
-      'type_rapport': typeRapport.label,
+      'type_rapport': typeRapport.name,
       'date_creation': dateCreation.toIso8601String(),
-      'conformite': conformite.label,
+      'conformite': conformite.name,
       'email_envoye': emailEnvoye,
       'date_envoi_email': dateEnvoiEmail?.toIso8601String(),
       'recommandations': recommandations,
-      'branche': branche.label,
+      'branche': branche.name,
       'signature_url': signatureUrl,
       'pdf_url': pdfUrl,
-      'equipment_checks': equipmentChecks.map((e) => e.toJson()).toList(),
-      'report_created_at': reportCreatedAt?.toIso8601String(),
+      'sync_status': syncStatus.name,
+      'updated_at': DateTime.now().toIso8601String(),
     };
   }
 
@@ -760,6 +795,8 @@ class Technician {
   final String role; // 'admin', 'technicien'
   final bool actif;
   final List<String> branches;
+
+  bool get isPlanner => role == 'admin' || role == 'planificateur';
 
   const Technician({
     required this.id,
@@ -902,4 +939,266 @@ class MockData {
 
   static List<Relance> get relancesUrgentes =>
       relances.where((r) => (r.joursRestants ?? 0) <= 30 && r.statut != StatutRelance.cloturee).toList();
+}
+
+// ─── NEW MODELS ─────────────────────────────────────────────────────
+
+class Node {
+  final String id;
+  final String clientId;
+  final String? parentId;
+  final String label;
+  final String type;
+  final String? category;
+  final Map<String, dynamic> metadata;
+  final DateTime createdAt;
+  final String syncStatus;
+
+  const Node({
+    required this.id,
+    required this.clientId,
+    this.parentId,
+    required this.label,
+    required this.type,
+    this.category,
+    this.metadata = const {},
+    required this.createdAt,
+    this.syncStatus = 'synced',
+  });
+
+  factory Node.fromJson(Map<String, dynamic> json) {
+    return Node(
+      id: json['id'] ?? '',
+      clientId: json['client_id'] ?? json['clientId'] ?? '',
+      parentId: json['parent_id'] ?? json['parentId'],
+      label: json['label'] ?? '',
+      type: json['type'] ?? '',
+      category: json['category'],
+      metadata: json['metadata'] is String 
+          ? jsonDecode(json['metadata']) 
+          : (json['metadata'] ?? {}),
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      syncStatus: json['sync_status'] ?? 'synced',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    if (id.isNotEmpty) 'id': id,
+    'client_id': clientId,
+    'parent_id': parentId,
+    'label': label,
+    'type': type,
+    'category': category,
+    'metadata': metadata,
+    'sync_status': syncStatus,
+  };
+
+  Node copyWith({
+    String? id,
+    String? clientId,
+    String? parentId,
+    String? label,
+    String? type,
+    String? category,
+    Map<String, dynamic>? metadata,
+    String? syncStatus,
+  }) {
+    return Node(
+      id: id ?? this.id,
+      clientId: clientId ?? this.clientId,
+      parentId: parentId ?? this.parentId,
+      label: label ?? this.label,
+      type: type ?? this.type,
+      category: category ?? this.category,
+      metadata: metadata ?? this.metadata,
+      createdAt: this.createdAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
+}
+
+class RiskAnalysis {
+  final String id;
+  final String interventionId;
+  final Map<String, dynamic> responses;
+  final String? observations;
+  final bool isBlocking;
+  final String? technicianSignatureUrl;
+  final DateTime createdAt;
+  final String syncStatus;
+
+  const RiskAnalysis({
+    required this.id,
+    required this.interventionId,
+    required this.responses,
+    this.observations,
+    this.isBlocking = false,
+    this.technicianSignatureUrl,
+    required this.createdAt,
+    this.syncStatus = 'synced',
+  });
+
+  factory RiskAnalysis.fromJson(Map<String, dynamic> json) {
+    return RiskAnalysis(
+      id: json['id'] ?? '',
+      interventionId: json['intervention_id'] ?? json['interventionId'] ?? '',
+      responses: json['responses'] is String 
+          ? jsonDecode(json['responses']) 
+          : (json['responses'] ?? {}),
+      observations: json['observations'],
+      isBlocking: json['is_blocking'] == true || json['is_blocking'] == 1,
+      technicianSignatureUrl: json['technician_signature_url'],
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      syncStatus: json['sync_status'] ?? 'synced',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    if (id.isNotEmpty) 'id': id,
+    'intervention_id': interventionId,
+    'responses': responses,
+    'observations': observations,
+    'is_blocking': isBlocking,
+    'technician_signature_url': technicianSignatureUrl,
+    'sync_status': syncStatus,
+  };
+}
+
+class InterventionAction {
+  final String id;
+  final String interventionId;
+  final String nodeId;
+  final String status;
+  final String? observations;
+  final bool isExtraBilling;
+  final double priceImpact;
+  final List<String> photos;
+  final DateTime createdAt;
+  final String syncStatus;
+
+  const InterventionAction({
+    required this.id,
+    required this.interventionId,
+    required this.nodeId,
+    required this.status,
+    this.observations,
+    this.isExtraBilling = false,
+    this.priceImpact = 0.0,
+    this.photos = const [],
+    required this.createdAt,
+    this.syncStatus = 'synced',
+  });
+
+  factory InterventionAction.fromJson(Map<String, dynamic> json) {
+    return InterventionAction(
+      id: json['id'] ?? '',
+      interventionId: json['intervention_id'] ?? json['interventionId'] ?? '',
+      nodeId: json['node_id'] ?? json['nodeId'] ?? '',
+      status: json['status'] ?? '',
+      observations: json['observations'],
+      isExtraBilling: json['is_extra_billing'] == true || json['is_extra_billing'] == 1,
+      priceImpact: (json['price_impact'] as num?)?.toDouble() ?? 0.0,
+      photos: List<String>.from(json['photos'] ?? []),
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      syncStatus: json['sync_status'] ?? 'synced',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    if (id.isNotEmpty) 'id': id,
+    'intervention_id': interventionId,
+    'node_id': nodeId,
+    'status': status,
+    'observations': observations,
+    'is_extra_billing': isExtraBilling,
+    'price_impact': priceImpact,
+    'photos': photos,
+    'created_at': createdAt.toIso8601String(),
+    'sync_status': syncStatus,
+  };
+}
+
+class AppDocument {
+  final String id;
+  final String clientId;
+  final String? interventionId;
+  final String label;
+  final String url;
+  final String type;
+  final DateTime createdAt;
+
+  const AppDocument({
+    required this.id,
+    required this.clientId,
+    this.interventionId,
+    required this.label,
+    required this.url,
+    required this.type,
+    required this.createdAt,
+  });
+
+  factory AppDocument.fromJson(Map<String, dynamic> json) {
+    return AppDocument(
+      id: json['id'] ?? '',
+      clientId: json['client_id'] ?? json['clientId'] ?? '',
+      interventionId: json['intervention_id'],
+      label: json['label'] ?? '',
+      url: json['url'] ?? '',
+      type: json['type'] ?? '',
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    if (id.isNotEmpty) 'id': id,
+    'client_id': clientId,
+    'intervention_id': interventionId,
+    'label': label,
+    'url': url,
+    'type': type,
+  };
+}
+
+class AuditLog {
+  final String id;
+  final String userId;
+  final String action;
+  final String targetTable;
+  final String? targetId;
+  final Map<String, dynamic>? oldValue;
+  final Map<String, dynamic>? newValue;
+  final DateTime createdAt;
+
+  const AuditLog({
+    required this.id,
+    required this.userId,
+    required this.action,
+    required this.targetTable,
+    this.targetId,
+    this.oldValue,
+    this.newValue,
+    required this.createdAt,
+  });
+
+  factory AuditLog.fromJson(Map<String, dynamic> json) {
+    return AuditLog(
+      id: json['id'] ?? '',
+      userId: json['user_id'] ?? json['userId'] ?? '',
+      action: json['action'] ?? '',
+      targetTable: json['target_table'] ?? '',
+      targetId: json['target_id'],
+      oldValue: json['old_value'],
+      newValue: json['new_value'],
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'user_id': userId,
+    'action': action,
+    'target_table': targetTable,
+    'target_id': targetId,
+    'old_value': oldValue,
+    'new_value': newValue,
+  };
 }

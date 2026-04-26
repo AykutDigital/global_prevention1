@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/app_scaffold.dart';
@@ -10,7 +11,8 @@ import '../widgets/responsive_layout.dart';
 import '../services/app_context_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/image_viewer.dart';
-import 'report_preview_screen.dart';
+import 'report_preview_screen.dart' as rps;
+import 'intervention_execution_screen.dart';
 
 class InterventionsScreen extends StatefulWidget {
   const InterventionsScreen({super.key});
@@ -224,6 +226,9 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
 
   Widget _buildInterventionCard(Intervention intervention, Client? client, bool isMobile) {
     final clientName = client?.raisonSociale ?? 'Client inconnu';
+    final fullAddress = client != null 
+        ? [client.adresse, client.codePostal, client.ville].where((s) => s != null && s.isNotEmpty).join(', ')
+        : '-';
     final city = client?.ville ?? '-';
     
     // Formatting time
@@ -287,14 +292,34 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              city, 
+                              fullAddress, 
                               style: TextStyle(color: AppTheme.secondaryText, fontSize: 12),
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
+                      if (client != null) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            _actionChip(
+                              label: 'Maps',
+                              icon: Icons.map_rounded,
+                              color: Colors.green,
+                              onTap: () => _launchMaps(fullAddress),
+                            ),
+                            const SizedBox(width: 8),
+                            _actionChip(
+                              label: 'Waze',
+                              icon: Icons.directions_car_rounded,
+                              color: Colors.blue,
+                              onTap: () => _launchWaze(fullAddress),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 2),
                       Row(
                         children: [
@@ -337,6 +362,32 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                 ),
               ],
             ),
+            if (intervention.notes != null && intervention.notes!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.assignment_rounded, size: 14, color: Colors.amber.shade800),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'CONSIGNES : ${intervention.notes}',
+                          style: TextStyle(fontSize: 11, color: Colors.amber.shade900, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (client != null) _buildEquipmentSummary(client.clientId),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -367,16 +418,19 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                     ),
                   ),
                   ElevatedButton(
-                    onPressed: () => _handleReportPressed(intervention),
+                    onPressed: () => _handleInterventionAction(intervention),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
+                      backgroundColor: intervention.statut == StatutIntervention.terminee ? Colors.grey : AppTheme.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       elevation: 0,
                     ),
-                    child: const Text('Rapport', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      intervention.statut == StatutIntervention.terminee ? 'Rapport' : 'Démarrer', 
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)
+                    ),
                   ),
                   TextButton.icon(
                     onPressed: () => _confirmDeleteIntervention(intervention),
@@ -592,7 +646,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => ReportPreviewScreen(
+            builder: (context) => rps.RapportPreviewScreen(
               client: client,
               intervention: intervention,
               rapport: report,
@@ -601,10 +655,21 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop(); // Safety hide
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur : $e')));
-      }
+      if (mounted) Navigator.of(context).pop();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
+  void _handleInterventionAction(Intervention intervention) {
+    if (intervention.statut == StatutIntervention.terminee) {
+      _handleReportPressed(intervention);
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => InterventionExecutionScreen(intervention: intervention),
+        ),
+      );
     }
   }
 
@@ -623,6 +688,96 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (context) => _QuickEditModal(intervention: intervention),
+    );
+  }
+
+  Widget _actionChip({required String label, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _launchMaps(String address) async {
+    final url = Uri.parse('google.navigation:q=${Uri.encodeComponent(address)}');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      final webUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
+      await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _launchWaze(String address) async {
+    final url = Uri.parse('waze://?q=${Uri.encodeComponent(address)}');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      final webUrl = Uri.parse('https://www.waze.com/ul?q=${Uri.encodeComponent(address)}');
+      await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Widget _buildEquipmentSummary(String clientId) {
+    return FutureBuilder<List<Equipment>>(
+      future: SupabaseService.instance.getEquipmentForClient(clientId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox.shrink();
+        final equipments = snapshot.data ?? [];
+        if (equipments.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('Première visite / arborescence à créer', 
+              style: TextStyle(color: AppTheme.infoBlue, fontSize: 11, fontStyle: FontStyle.italic)),
+          );
+        }
+        
+        // Group by type
+        final groups = <String, int>{};
+        for (var eq in equipments) {
+          groups[eq.type] = (groups[eq.type] ?? 0) + 1;
+        }
+        
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ÉQUIPEMENTS À VÉRIFIER', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: AppTheme.tertiaryText, letterSpacing: 1)),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: groups.entries.map((e) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.infoBlue.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppTheme.infoBlue.withOpacity(0.1)),
+                  ),
+                  child: Text('${e.key} : ${e.value}', style: TextStyle(color: AppTheme.infoBlue, fontSize: 10, fontWeight: FontWeight.bold)),
+                )).toList(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -254,7 +254,7 @@ class _ClientReportsDetailScreenState extends State<ClientReportsDetailScreen> {
           const SizedBox(width: 16),
           IconButton(
             icon: Icon(Icons.visibility_rounded, color: AppTheme.primary, size: 22),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportPreviewScreen(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RapportPreviewScreen(
               client: widget.client,
               intervention: intervention,
               rapport: rapport,

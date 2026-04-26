@@ -19,14 +19,77 @@ class LocalDbService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 4,
       onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createDB(db, 2);
+    }
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_rapports (
+          id TEXT PRIMARY KEY,
+          intervention_id TEXT,
+          numero_rapport TEXT,
+          type_rapport TEXT,
+          date_creation TEXT,
+          conformite TEXT,
+          recommandations TEXT,
+          branche TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          updated_at TEXT
+        )
+      ''');
+    }
+    if (oldVersion < 4) {
+      // Simplest way for dev: Drop and recreate or add columns.
+      // We'll add missing columns to local_interventions
+      final columns = [
+        'branche', 'periodicite', 'scheduled_date', 'actual_date', 
+        'start_time', 'end_time', 'date_prochaine', 'technicien_nom',
+        'observations', 'duree_minutes', 'surface_m2', 'registre_securite',
+        'activite_site', 'risques_site', 'client_raison_sociale', 
+        'arborescence_json', 'risk_analysis_id', 'notes'
+      ];
+      for (var col in columns) {
+        try {
+          await db.execute('ALTER TABLE local_interventions ADD COLUMN $col TEXT');
+        } catch (e) {
+          // Column might already exist
+        }
+      }
+
+      // ALSO add missing table local_equipment if it was added in version 4
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_equipment (
+          id TEXT PRIMARY KEY,
+          client_id TEXT,
+          branche TEXT,
+          type TEXT,
+          brand TEXT,
+          model TEXT,
+          capacity TEXT,
+          agent TEXT,
+          manufacture_year INTEGER,
+          location TEXT,
+          niveau TEXT,
+          qr_code TEXT,
+          last_maintenance TEXT,
+          next_maintenance TEXT,
+          sync_status TEXT DEFAULT 'synced',
+          updated_at TEXT
+        )
+      ''');
+    }
   }
 
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE local_clients (
+      CREATE TABLE IF NOT EXISTS local_clients (
         id TEXT PRIMARY KEY,
         code_client TEXT,
         raison_sociale TEXT,
@@ -54,13 +117,123 @@ class LocalDbService {
         payment_terms INTEGER,
         activite TEXT,
         risques_particuliers TEXT,
-        sync_status TEXT DEFAULT 'pending_create',
+        sync_status TEXT DEFAULT 'synced',
         updated_at TEXT
       )
     ''');
-    
-    // Futures tables will be added here:
-    // interventions, reports, equipments, relances, technicians
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_nodes (
+        id TEXT PRIMARY KEY,
+        client_id TEXT,
+        parent_id TEXT,
+        label TEXT,
+        type TEXT,
+        category TEXT,
+        metadata TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_risk_analyses (
+        id TEXT PRIMARY KEY,
+        intervention_id TEXT,
+        responses TEXT,
+        observations TEXT,
+        is_blocking INTEGER,
+        technician_signature_url TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_intervention_actions (
+        id TEXT PRIMARY KEY,
+        intervention_id TEXT,
+        node_id TEXT,
+        status TEXT,
+        observations TEXT,
+        is_extra_billing INTEGER,
+        price_impact REAL,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_interventions (
+        id TEXT PRIMARY KEY,
+        client_id TEXT,
+        technician_id TEXT,
+        branche TEXT,
+        type_intervention TEXT,
+        periodicite TEXT,
+        date_intervention TEXT,
+        scheduled_date TEXT,
+        actual_date TEXT,
+        start_time TEXT,
+        end_time TEXT,
+        date_prochaine TEXT,
+        technicien_nom TEXT,
+        statut TEXT,
+        observations TEXT,
+        duree_minutes INTEGER,
+        surface_m2 REAL,
+        registre_securite INTEGER,
+        activite_site TEXT,
+        risques_site TEXT,
+        client_raison_sociale TEXT,
+        arborescence_json TEXT,
+        risk_analysis_id TEXT,
+        notes TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_rapports (
+        id TEXT PRIMARY KEY,
+        intervention_id TEXT,
+        numero_rapport TEXT,
+        type_rapport TEXT,
+        date_creation TEXT,
+        conformite TEXT,
+        recommandations TEXT,
+        branche TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_equipment (
+        id TEXT PRIMARY KEY,
+        client_id TEXT,
+        branche TEXT,
+        type TEXT,
+        brand TEXT,
+        model TEXT,
+        capacity TEXT,
+        agent TEXT,
+        manufacture_year INTEGER,
+        location TEXT,
+        niveau TEXT,
+        qr_code TEXT,
+        last_maintenance TEXT,
+        next_maintenance TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
+      )
+    ''');
+  }
+
+  Future<void> upsert(String table, Map<String, dynamic> data) async {
+    final db = await database;
+    await db.insert(table, data, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> close() async {

@@ -6,11 +6,13 @@ import '../theme/app_theme.dart';
 class SignaturePad extends StatefulWidget {
   final String label;
   final Function(Uint8List?) onSaved;
+  final Uint8List? initialSignature;
 
   const SignaturePad({
     super.key,
     required this.label,
     required this.onSaved,
+    this.initialSignature,
   });
 
   @override
@@ -19,10 +21,12 @@ class SignaturePad extends StatefulWidget {
 
 class _SignaturePadState extends State<SignaturePad> {
   late SignatureController _controller;
+  bool _hasInitialSignature = false;
 
   @override
   void initState() {
     super.initState();
+    _hasInitialSignature = widget.initialSignature != null;
     _controller = SignatureController(
       penStrokeWidth: 3,
       penColor: Colors.black,
@@ -50,11 +54,19 @@ class _SignaturePadState extends State<SignaturePad> {
           ),
           child: Column(
             children: [
-              Signature(
-                controller: _controller,
-                height: 150,
-                backgroundColor: AppTheme.background,
-              ),
+              if (_hasInitialSignature)
+                Container(
+                  height: 150,
+                  width: double.infinity,
+                  color: AppTheme.background,
+                  child: Image.memory(widget.initialSignature!, fit: BoxFit.contain),
+                )
+              else
+                Signature(
+                  controller: _controller,
+                  height: 150,
+                  backgroundColor: AppTheme.background,
+                ),
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -66,7 +78,11 @@ class _SignaturePadState extends State<SignaturePad> {
                   children: [
                     IconButton(
                       icon: const Icon(Icons.delete_outline, color: AppTheme.veriflammeRed),
-                      onPressed: () => _controller.clear(),
+                      onPressed: () {
+                        _controller.clear();
+                        setState(() => _hasInitialSignature = false);
+                        widget.onSaved(null);
+                      },
                       tooltip: 'Effacer',
                     ),
                     IconButton(

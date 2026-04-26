@@ -20,6 +20,8 @@ class PdfService {
     required Intervention intervention,
     required Rapport rapport,
     required List<Equipment> equipments,
+    RiskAnalysis? riskAnalysis,
+    List<InterventionAction>? extraActions,
     Uint8List? logoBytes,
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
@@ -168,7 +170,7 @@ class PdfService {
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           _infoRow('Activité :', intervention.activiteSite ?? client.activite ?? '-'),
-                          _infoRow('Analyse de risque :', _parseRiskSummary(intervention.risquesSite)),
+                          _infoRow('Analyse de risque :', _parseRiskAnalysis(riskAnalysis, intervention.risquesSite)),
                         ],
                       ),
                     ),
@@ -318,6 +320,30 @@ class PdfService {
                   }),
                 ],
               ),
+              
+              if (extraActions != null && extraActions.isNotEmpty) ...[
+                pw.SizedBox(height: 15),
+                pw.Text('TRAVAUX COMPLÉMENTAIRES & PIÈCES', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: primaryColor)),
+                pw.SizedBox(height: 5),
+                pw.Table(
+                  border: pw.TableBorder.all(color: headerBlue, width: 0.5),
+                  children: [
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(color: pdfLightBlue),
+                      children: [
+                        _cell('Description de la prestation / Pièce', bold: true, fontSize: 8),
+                        _cell('Impact Prix (€)', bold: true, fontSize: 8, center: true),
+                      ],
+                    ),
+                    ...extraActions.map((action) => pw.TableRow(
+                      children: [
+                        _cell(action.status, fontSize: 8),
+                        _cell('${action.priceImpact.toStringAsFixed(2)} €', fontSize: 8, center: true),
+                      ],
+                    )),
+                  ],
+                ),
+              ],
               
               // Legend
               pw.SizedBox(height: 5),
@@ -547,8 +573,22 @@ class PdfService {
         return summary;
       }
     } catch (_) {}
-    // Si c'est du texte libre (anciens rapports), on l'affiche tel quel
     return risquesSite;
+  }
+
+  static String _parseRiskAnalysis(RiskAnalysis? analysis, String? oldRisques) {
+    if (analysis == null) return _parseRiskSummary(oldRisques);
+    
+    final count = analysis.responses.length;
+    final nonCount = analysis.responses.values.where((v) => v == false).length;
+    
+    String summary = 'Analyse signée ($count questions)';
+    if (nonCount > 0) summary += ' — $nonCount danger(s) identifié(s)';
+    if (analysis.isBlocking) summary += '\n⚠ INTERVENTION BLOQUÉE PAR SÉCURITÉ';
+    if (analysis.observations != null && analysis.observations!.isNotEmpty) {
+      summary += '\nObservations : ${analysis.observations}';
+    }
+    return summary;
   }
 
   static pw.Widget _infoRow(String label, String value) {
@@ -591,6 +631,8 @@ class PdfService {
     required Intervention intervention,
     required Rapport rapport,
     required List<Equipment> equipments,
+    RiskAnalysis? riskAnalysis,
+    List<InterventionAction>? extraActions,
     Uint8List? signatureClient,
     Uint8List? signatureTechnicien,
     List<File>? interventionPhotos,
@@ -610,6 +652,8 @@ class PdfService {
       intervention: intervention,
       rapport: rapport,
       equipments: equipments,
+      riskAnalysis: riskAnalysis,
+      extraActions: extraActions,
       logoBytes: logoBytes,
       signatureClient: signatureClient,
       signatureTechnicien: signatureTechnicien,

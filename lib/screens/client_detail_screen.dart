@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'report_preview_screen.dart';
 import '../services/pdf_service.dart';
 import 'client_form_screen.dart';
+import 'arborescence_screen.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   final Client client;
@@ -25,7 +26,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -95,6 +96,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
             Tab(text: 'Interventions'),
             Tab(text: 'Rapports'),
             Tab(text: 'Relances'),
+            Tab(text: 'Arborescence'),
             Tab(text: 'Équipements'),
           ],
         ),
@@ -106,6 +108,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
           _buildInterventionsTab(client.clientId),
           _buildRapportsTab(client),
           _buildRelancesTab(client.clientId),
+          _buildArborescenceTab(client),
           _buildEquipmentTab(client.clientId),
         ],
       ),
@@ -435,7 +438,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
                       children: [
                         IconButton(
                           icon: const Icon(Icons.visibility_rounded, size: 20),
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportPreviewScreen(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RapportPreviewScreen(
                             client: client,
                             intervention: intervention,
                             rapport: r,
@@ -532,6 +535,101 @@ class _ClientDetailScreenState extends State<ClientDetailScreen>
         );
       },
     );
+  }
+
+  Widget _buildArborescenceTab(Client client) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: AppTheme.background,
+          child: Row(
+            children: [
+              const Icon(Icons.account_tree_rounded, size: 20, color: AppTheme.secondaryText),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Structure hiérarchique du site (Bâtiments, Niveaux, Équipements)',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.secondaryText),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ArborescenceScreen(
+                      clientId: client.clientId,
+                      raisonSociale: client.raisonSociale,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.fullscreen_rounded, size: 18),
+                label: const Text('Gérer'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<List<Node>>(
+            stream: SupabaseService.instance.nodesStream(client.clientId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final nodes = snapshot.data ?? [];
+              if (nodes.isEmpty) {
+                return _buildPlaceholderTab(
+                  Icons.account_tree_outlined,
+                  'Aucune arborescence',
+                  'La structure du site n\'est pas encore définie.',
+                );
+              }
+
+              // Simple preview of the tree
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: nodes.length > 10 ? 11 : nodes.length,
+                itemBuilder: (context, index) {
+                  if (index == 10) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Center(
+                        child: Text(
+                          '... et ${nodes.length - 10} autres éléments',
+                          style: const TextStyle(color: AppTheme.secondaryText, fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                    );
+                  }
+                  final node = nodes[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      children: [
+                        Icon(_getIconForNodeType(node.type), size: 14, color: AppTheme.secondaryText),
+                        const SizedBox(width: 8),
+                        Text(node.label, style: const TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _getIconForNodeType(String type) {
+    switch (type) {
+      case 'building': return Icons.business_rounded;
+      case 'level': return Icons.layers_rounded;
+      case 'zone': return Icons.grid_view_rounded;
+      case 'room': return Icons.meeting_room_rounded;
+      case 'equipment': return Icons.handyman_rounded;
+      default: return Icons.help_outline_rounded;
+    }
   }
 
   Widget _buildEquipmentTab(String clientId) {

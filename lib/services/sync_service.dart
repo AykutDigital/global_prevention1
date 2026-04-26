@@ -2,6 +2,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:sqflite/sqflite.dart';
 import '../services/local_db_service.dart';
 import '../services/supabase_service.dart';
+import '../models/models.dart';
 import '../repositories/client_repository.dart';
 
 class SyncService {
@@ -12,7 +13,7 @@ class SyncService {
 
   void initialize() {
     Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      if (results.contains(ConnectivityResult.mobile) || results.contains(ConnectivityResult.wifi)) {
+      if (results.any((r) => r != ConnectivityResult.none)) {
         syncAll();
       }
     });
@@ -24,10 +25,57 @@ class SyncService {
     if (_isSyncing) return;
     _isSyncing = true;
     try {
-      await _syncUpData();
-      await _syncDownClients();
+      // 1. Pousser les changements locaux vers Supabase (QUEUE)
+      await _syncUpTable('local_nodes', 'nodes', (json) => Node.fromJson(json));
+      await _syncUpTable('local_risk_analyses', 'risk_analyses', (json) => RiskAnalysis.fromJson(json));
+      await _syncUpTable('local_intervention_actions', 'intervention_actions', (json) => InterventionAction.fromJson(json));
+      await _syncUpData(); // Clients existing logic
+      
+      // 2. Récupérer les données fraîches de Supabase (DOWN)
+      // (Optionnel selon les besoins de fraîcheur temps réel)
     } finally {
       _isSyncing = false;
+    }
+  }
+
+  Future<void> _syncUpTable(String localTable, String remoteTable, Function(Map<String, dynamic>) fromJson) async {
+    try {
+      final db = await LocalDbService.instance.database;
+      final pending = await db.query(localTable, where: "sync_status != ?", whereArgs: ['synced']);
+
+      for (var row in pending) {
+        final id = row['id'] as String;
+        final status = row['sync_status'] as String;
+        
+        try {
+          Map<String, dynamic> data = Map<String, dynamic>.from(row);
+          data.remove('sync_status');
+          data.remove('updated_at');
+          
+          // Nettoyage des données pour Supabase (SQFLITE boolean conversion)
+          data.forEach((key, value) {
+            if (value == 0 || value == 1) {
+              // On checke si c'est supposé être un bool
+              if (key.startsWith('is_') || key == 'actif' || key == 'is_blocking' || key == 'is_extra_billing') {
+                data[key] = value == 1;
+              }
+            }
+          });
+
+          if (status == 'pending_delete') {
+            await SupabaseService.instance.rawClient.from(remoteTable).delete().eq('id', id);
+            await db.delete(localTable, where: 'id = ?', whereArgs: [id]);
+          } else {
+            await SupabaseService.instance.rawClient.from(remoteTable).upsert(data);
+            await db.update(localTable, {'sync_status': 'synced'}, where: 'id = ?', whereArgs: [id]);
+          }
+        } catch (e) {
+          print('Erreur sync $remoteTable $id: $e');
+          await db.update(localTable, {'sync_status': 'failed'}, where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    } catch (e) {
+      print('Erreur _syncUpTable $remoteTable: $e');
     }
   }
 

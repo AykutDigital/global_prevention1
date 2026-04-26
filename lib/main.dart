@@ -71,7 +71,7 @@ class GlobalPreventionApp extends StatelessWidget {
         '/client-form': (_) => const ClientFormScreen(),
         '/interventions': (_) => const InterventionsScreen(),
         '/new-intervention': (_) => const NewInterventionScreen(),
-        '/risk-analysis': (_) => const RiskAnalysisScreen(),
+        // '/risk-analysis': (_) => const RiskAnalysisScreen(),
         '/reports': (_) => const ReportsScreen(),
         '/relances': (_) => const RelancesScreen(),
         '/admin': (_) => const AdminScreen(),

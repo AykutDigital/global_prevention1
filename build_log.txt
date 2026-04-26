@@ -1,0 +1,89 @@
+Resolving dependencies...
+Downloading packages...
+  cli_util 0.4.2 (0.5.0 available)
+  dart_jsonwebtoken 3.4.0 (3.4.1 available)
+  gotrue 2.19.0 (2.20.0 available)
+  hooks 1.0.2 (1.0.3 available)
+  meta 1.17.0 (1.18.2 available)
+  native_toolchain_c 0.17.6 (0.18.0 available)
+  path_provider_android 2.3.0 (2.3.1 available)
+  postgrest 2.6.0 (2.7.0 available)
+  realtime_client 2.7.1 (2.7.3 available)
+  share_plus 12.0.2 (13.1.0 available)
+  share_plus_platform_interface 6.1.0 (7.1.0 available)
+  signature 5.5.0 (6.3.0 available)
+  sqflite 2.4.2 (2.4.2+1 available)
+  sqflite_common 2.5.6 (2.5.6+1 available)
+  storage_client 2.5.1 (2.5.2 available)
+  supabase 2.10.4 (2.10.6 available)
+  supabase_flutter 2.12.2 (2.12.4 available)
+  synchronized 3.4.0 (3.4.0+1 available)
+  test_api 0.7.10 (0.7.11 available)
+  vector_math 2.2.0 (2.3.0 available)
+  vm_service 15.0.2 (15.1.0 available)
+  win32 5.15.0 (6.1.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+23 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Running Gradle task 'assembleDebug'...                          
+lib/main.dart:74:58: Error: Required named parameter 'intervention' must be provided.
+        '/risk-analysis': (_) => const RiskAnalysisScreen(),
+                                                         ^
+lib/screens/risk_analysis_screen.dart:14:9: Context: Found this candidate, but the arguments don't match.
+  const RiskAnalysisScreen({super.key, required this.intervention});
+        ^^^^^^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:843:10: Error: '_sectionTitle' is already declared in this scope.
+  Widget _sectionTitle(String title) {
+         ^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:695:10: Context: Previous declaration of '_sectionTitle'.
+  Widget _sectionTitle(String title) {
+         ^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:246:38: Error: The getter '_showVerificationDialog' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named '_showVerificationDialog'.
+                  onVerifyEquipment: _showVerificationDialog,
+                                     ^^^^^^^^^^^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:247:35: Error: The getter '_showAddEquipmentDialog' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named '_showAddEquipmentDialog'.
+                  onAddEquipment: _showAddEquipmentDialog,
+                                  ^^^^^^^^^^^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:248:35: Error: The getter '_capturePhoto' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named '_capturePhoto'.
+                  onCapturePhoto: _capturePhoto,
+                                  ^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:250:34: Error: The getter '_openReportPreview' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named '_openReportPreview'.
+                  onOpenPreview: _openReportPreview,
+                                 ^^^^^^^^^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:436:29: Error: The getter 'PdfService' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'PdfService'.
+      final pdfFile = await PdfService.generateInterventionReport(
+                            ^^^^^^^^^^
+lib/screens/new_intervention_screen.dart:485:79: Error: The method 'RapportPreviewScreen' isn't defined for the type '_NewInterventionScreenState'.
+ - '_NewInterventionScreenState' is from 'package:global_prevention/screens/new_intervention_screen.dart' ('lib/screens/new_intervention_screen.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'RapportPreviewScreen'.
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => RapportPreviewScreen(
+                                                                              ^^^^^^^^^^^^^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildDebug'.
+> Process 'command '/Users/aykutdigital/development/flutter/bin/flutter'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2s
+Running Gradle task 'assembleDebug'...                           2 343ms
+Gradle task assembleDebug failed with exit code 1

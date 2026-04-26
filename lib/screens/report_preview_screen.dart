@@ -5,14 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../models/models.dart';
 import '../services/pdf_service.dart';
-
 import '../services/supabase_service.dart';
 import '../widgets/mail_draft_dialog.dart';
-import 'package:path_provider/path_provider.dart';
 
-class ReportPreviewScreen extends StatefulWidget {
+class RapportPreviewScreen extends StatefulWidget {
   final Client client;
   final Intervention intervention;
   final Rapport rapport;
@@ -21,7 +20,7 @@ class ReportPreviewScreen extends StatefulWidget {
   final List<Equipment>? equipments;
   final bool isPreview;
 
-  const ReportPreviewScreen({
+  const RapportPreviewScreen({
     super.key,
     required this.client,
     required this.intervention,
@@ -33,10 +32,10 @@ class ReportPreviewScreen extends StatefulWidget {
   });
 
   @override
-  State<ReportPreviewScreen> createState() => _ReportPreviewScreenState();
+  State<RapportPreviewScreen> createState() => _RapportPreviewScreenState();
 }
 
-class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
+class _RapportPreviewScreenState extends State<RapportPreviewScreen> {
   List<Equipment>? _equipments;
   bool _isLoading = false;
 
@@ -64,9 +63,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     }
   }
 
-  /// Télécharge toutes les photos de l'intervention depuis Supabase Storage.
-  /// Appelé directement dans le build: callback de PdfPreview pour garantir
-  /// que les photos sont prêtes avant la génération du PDF.
   Future<List<File>?> _downloadInterventionPhotos() async {
     try {
       final photos = await SupabaseService.instance
@@ -117,7 +113,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
       ),
       body: Column(
         children: [
-          // Preview banner
           if (widget.isPreview)
             Container(
               width: double.infinity,
@@ -126,14 +121,14 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 color: Color(0xFFFFF3E0),
                 border: Border(bottom: BorderSide(color: Color(0xFFF57C00), width: 2)),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  const Icon(Icons.visibility_rounded, color: Color(0xFFF57C00), size: 20),
-                  const SizedBox(width: 8),
+                  Icon(Icons.visibility_rounded, color: Color(0xFFF57C00), size: 20),
+                  SizedBox(width: 8),
                   Flexible(
                     child: Text(
                       'PRÉVISUALISATION — Ce document n\'a aucune valeur sans signature',
-                      style: const TextStyle(color: Color(0xFFF57C00), fontWeight: FontWeight.w600, fontSize: 12),
+                      style: TextStyle(color: Color(0xFFF57C00), fontWeight: FontWeight.w600, fontSize: 12),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 2,
                     ),
@@ -144,7 +139,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
           Expanded(
             child: PdfPreview(
               build: (format) async {
-                // ── Mode prévisualisation (avant signature) ──────────────────
                 if (widget.isPreview) {
                   Uint8List? logoBytes;
                   try {
@@ -167,7 +161,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                   );
                 }
 
-                // ── Rapport final : essayer d'abord le PDF stocké sur le Cloud ──
                 if (widget.rapport.pdfUrl != null && widget.rapport.pdfUrl!.isNotEmpty) {
                   try {
                     final response = await http.get(Uri.parse(widget.rapport.pdfUrl!));
@@ -179,7 +172,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                   }
                 }
 
-                // ── Génération locale (pdfUrl absent ou échec) ───────────────
                 Uint8List? logoBytes;
                 try {
                   final logoData = await rootBundle.load(
@@ -192,7 +184,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                   debugPrint('Erreur logo: $e');
                 }
 
-                // Décoder les signatures stockées en base64 dans signatureUrl
                 Uint8List? sigClient = widget.signatureClient;
                 Uint8List? sigTech = widget.signatureTechnicien;
                 if ((sigClient == null || sigTech == null) && widget.rapport.signatureUrl != null) {
@@ -205,8 +196,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                   }
                 }
 
-                // Télécharger les photos depuis Supabase (directement ici pour
-                // garantir qu'elles sont disponibles avant la génération du PDF)
                 final photoFiles = await _downloadInterventionPhotos();
 
                 return PdfService.buildReportBytes(
@@ -246,7 +235,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
       client: widget.client,
       rapport: widget.rapport,
       onSend: () async {
-        // 1. Obtenir les bytes du PDF (soit via URL, soit via génération locale)
         Uint8List pdfBytes;
         if (widget.rapport.pdfUrl != null && widget.rapport.pdfUrl!.isNotEmpty) {
           final response = await http.get(Uri.parse(widget.rapport.pdfUrl!));
@@ -278,12 +266,10 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
           );
         }
 
-        // 2. Sauvegarder dans un fichier temporaire pour le partage
         final output = await getTemporaryDirectory();
         final file = File("${output.path}/rapport_${widget.rapport.numeroRapport}.pdf");
         await file.writeAsBytes(pdfBytes);
 
-        // 3. Lancer le partage (ouvre l'app Mail/Gmail avec pièce jointe)
         await PdfService.shareFile(
           file,
           'Rapport de vérification ${widget.rapport.branche.label} - ${widget.rapport.numeroRapport}',
@@ -295,8 +281,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     showDialog(
       context: context,
       builder: (context) => draftDialog,
-    ).then((_) {
-      // Logic for confirming send could be added here if needed
-    });
+    );
   }
 }
